@@ -38,13 +38,14 @@ Spotlight, Raycast, and `agent-view`.
 ## Install
 
 ```sh
-git clone <REPO_URL> wave-switcher
-cd wave-switcher
-./install.sh
+curl -fsSL https://gitlab.com/mdoyle/wave-switcher/-/raw/main/install.sh | sh
 ```
 
-The installer copies the Spoon into `~/.hammerspoon/Spoons/`, adds three lines to
-your `~/.hammerspoon/init.lua`, and reloads Hammerspoon.
+(Prefer not to pipe to `sh`? `git clone` the repo and run `./install.sh`.)
+
+The installer downloads the Spoon into `~/.hammerspoon/Spoons/`, adds three lines to
+your `~/.hammerspoon/init.lua`, and reloads Hammerspoon. It won't touch anything
+if Hammerspoon isn't installed (`brew install --cask hammerspoon`).
 
 Then, **once**:
 
