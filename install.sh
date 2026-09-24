@@ -2,7 +2,7 @@
 # WaveSwitcher installer.
 #
 # One-line install:
-#   curl -fsSL https://gitlab.com/mdoyle/wave-switcher/-/raw/main/install.sh | sh
+#   curl -fsSL https://gitlab.mitre.org/mdoyle/wave-switcher/-/raw/main/install.sh | sh
 #
 # Or from a local clone:
 #   ./install.sh
@@ -11,7 +11,7 @@
 # Hammerspoon. Override the download source with WAVESWITCHER_RAW if needed.
 set -e
 
-RAW="${WAVESWITCHER_RAW:-https://gitlab.com/mdoyle/wave-switcher/-/raw/main}"
+RAW="${WAVESWITCHER_RAW:-https://gitlab.mitre.org/mdoyle/wave-switcher/-/raw/main}"
 DEST="$HOME/.hammerspoon/Spoons/WaveSwitcher.spoon"
 INIT="$HOME/.hammerspoon/init.lua"
 
