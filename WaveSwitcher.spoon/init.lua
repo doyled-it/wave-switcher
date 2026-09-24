@@ -62,6 +62,7 @@ local function loadEntries()
       tabName = e.tabName or "?",
       status = e.status or "—",
       color = e.color or "#888888",
+      current = e.current == 1,
     }
   end
   return entries
@@ -201,7 +202,7 @@ local HTML = [==[
   };
   // First paint from embedded data, so it shows before any JS is injected.
   var DATA = /*__DATA__*/[];
-  window.setData(DATA, 0, "");
+  window.setData(DATA, /*__SEL__*/0, "");
 </script>
 </body></html>
 ]==]
@@ -304,6 +305,10 @@ open = function()
   end
   P.query = ""; P.sel = 1
   refilter()
+  -- Pre-select the tab you came from (the active window's active tab).
+  for i, e in ipairs(P.filtered) do
+    if e.current then P.sel = i; break end
+  end
 
   local groups, seen = 0, {}
   for _, e in ipairs(P.entries) do
@@ -320,6 +325,7 @@ open = function()
   local rect = { x = scr.x + (scr.w - wvW) / 2, y = scr.y + scr.h * TOP_FRAC, w = wvW, h = wvH }
 
   local html = HTML:gsub("/%*__DATA__%*/%[%]", function() return rowsJson(P.filtered) end)
+  html = html:gsub("/%*__SEL__%*/0", function() return tostring(P.sel - 1) end)
 
   -- render-only webview: no allowTextEntry, never focused -> Wave stays key
   webview = hs.webview.new(rect, { developerExtrasEnabled = false })
