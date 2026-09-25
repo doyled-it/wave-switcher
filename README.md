@@ -75,39 +75,32 @@ Change the hotkey by editing the `bindHotkeys` line, e.g. `Cmd+K`:
 spoon.WaveSwitcher:bindHotkeys({ open = {{"cmd"}, "k"} })
 ```
 
-## Live status (optional)
+## Claude Code integration
 
-The status dot/pill for each tab is read from that tab's **Wave flag color**
-(`tab:flagcolor`). WaveSwitcher maps:
+If you run [Claude Code](https://claude.com/claude-code) in Wave, the installer
+also wires up two extras (skip with `./install.sh --no-claude`). Both are driven
+by one hook script, `wave-claude-hook.sh`, added to `~/.claude/settings.json`
+(existing hooks are preserved; re-running is idempotent):
 
-| Flag color | Status        |
-|------------|---------------|
-| `#4a9eff`  | running       |
-| `#e0b956`  | needs input   |
-| `#58c142`  | idle          |
-| (none)     | — (no status) |
+**Live status dots** — each tab's status flag is kept in sync so the picker shows it:
 
-Any workflow that sets those flags will light up the picker. If you run
-[Claude Code](https://claude.com/claude-code) in Wave, add these hooks to
-`~/.claude/settings.json` to keep the flags in sync automatically (requires
-Wave's `wsh` CLI on your `PATH`):
+| State | Flag color | Picker |
+|-------|-----------|--------|
+| session start / done | `#58c142` | 🟢 idle |
+| working (prompt submitted) | `#4a9eff` | 🔵 running |
+| needs input (permission / question) | `#e0b956` | 🟡 needs input |
 
-```json
-{
-  "hooks": {
-    "SessionStart":     [{ "matcher": "", "hooks": [{ "type": "command", "command": "wsh setmeta -b tab \"tab:flagcolor=#58c142\"" }] }],
-    "UserPromptSubmit": [{ "matcher": "", "hooks": [{ "type": "command", "command": "wsh setmeta -b tab \"tab:flagcolor=#4a9eff\"" }] }],
-    "Stop":             [{ "matcher": "", "hooks": [{ "type": "command", "command": "wsh setmeta -b tab \"tab:flagcolor=#58c142\"" }] }],
-    "Notification": [
-      { "matcher": "permission_prompt", "hooks": [{ "type": "command", "command": "wsh setmeta -b tab \"tab:flagcolor=#e0b956\"" }] },
-      { "matcher": "elicitation_dialog", "hooks": [{ "type": "command", "command": "wsh setmeta -b tab \"tab:flagcolor=#e0b956\"" }] }
-    ],
-    "PreToolUse": [
-      { "matcher": "AskUserQuestion", "hooks": [{ "type": "command", "command": "wsh setmeta -b tab \"tab:flagcolor=#e0b956\"" }] }
-    ]
-  }
-}
-```
+**Resume after a Wave restart** — when Wave restarts, its terminal tabs come back
+as fresh shells (the running `claude` process is gone). The hook records each
+session's id on its tab (in Wave metadata, which survives a restart) and clears it
+on a clean exit. A snippet added to `~/.zshrc` then checks, on a fresh interactive
+shell in a Wave tab, whether that tab had a session — and if so runs
+`claude --resume <id>` to bring it back. It fires only after an unexpected restart,
+consumes the marker so it can't loop, and never runs in bare-terminal tabs or
+inside Claude's own tool shells.
+
+Requires Wave's `wsh` CLI (installed with Wave) on your `PATH`, and `python3`
+(built into macOS) for the settings merge.
 
 ## How it works
 
@@ -134,8 +127,11 @@ Wave's `wsh` CLI on your `PATH`):
 rm -rf ~/.hammerspoon/Spoons/WaveSwitcher.spoon
 ```
 
-Then remove the three `WaveSwitcher` lines from `~/.hammerspoon/init.lua` and
-reload Hammerspoon.
+Then:
+- remove the three `WaveSwitcher` lines from `~/.hammerspoon/init.lua` and reload Hammerspoon;
+- if you enabled the Claude integration, remove the `wave-claude-hook.sh` entries
+  from `~/.claude/settings.json` (a timestamped `.bak` was saved next to it) and
+  delete the `# WaveSwitcher resume` block at the end of `~/.zshrc`.
 
 ## License
 
