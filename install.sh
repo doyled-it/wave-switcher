@@ -83,6 +83,7 @@ hooks = cfg.setdefault("hooks", {})
 wanted = [
     ("SessionStart",     "", "SessionStart"),
     ("UserPromptSubmit", "", "UserPromptSubmit"),
+    ("PostToolUse",      "", "PostTool"),
     ("Stop",             "", "Stop"),
     ("Notification", "permission_prompt",  "NeedsInput"),
     ("Notification", "elicitation_dialog", "NeedsInput"),

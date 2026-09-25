@@ -28,6 +28,9 @@ case "$event" in
     [ -n "$sid" ] && wsh setmeta -b this "claude:resume=$sid" >/dev/null 2>&1
     ;;
   UserPromptSubmit) wsh setmeta -b tab "tab:flagcolor=$BLUE"  >/dev/null 2>&1 ;;
+  # After each tool finishes, Claude is working again — clears a stale "needs
+  # input" (gold) once you've answered a permission prompt or a question.
+  PostTool)         wsh setmeta -b tab "tab:flagcolor=$BLUE"  >/dev/null 2>&1 ;;
   Stop)             wsh setmeta -b tab "tab:flagcolor=$GREEN" >/dev/null 2>&1 ;;
   NeedsInput)       wsh setmeta -b tab "tab:flagcolor=$GOLD"  >/dev/null 2>&1 ;;
   SessionEnd)       wsh setmeta -b this "claude:resume=" >/dev/null 2>&1 ;;
