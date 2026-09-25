@@ -45,11 +45,12 @@ fetch() { # fetch <relpath> <dest>
 
 mkdir -p "$DEST"
 [ -n "$LOCAL" ] && echo "Installing from local clone: $LOCAL" || echo "Downloading WaveSwitcher from $RAW"
-fetch init.lua           "$DEST/init.lua"
-fetch wave-sessions.sh   "$DEST/wave-sessions.sh"
+fetch init.lua            "$DEST/init.lua"
+fetch wave-sessions.sh    "$DEST/wave-sessions.sh"
 fetch wave-claude-hook.sh "$DEST/wave-claude-hook.sh"
-fetch resume.zsh         "$DEST/resume.zsh"
-chmod +x "$DEST/wave-sessions.sh" "$DEST/wave-claude-hook.sh"
+fetch wave-notify.sh      "$DEST/wave-notify.sh"
+fetch resume.zsh          "$DEST/resume.zsh"
+chmod +x "$DEST/wave-sessions.sh" "$DEST/wave-claude-hook.sh" "$DEST/wave-notify.sh"
 echo "Installed Spoon -> $DEST"
 
 # --- wire up Hammerspoon init.lua -----------------------------------------
@@ -85,9 +86,10 @@ wanted = [
     ("UserPromptSubmit", "", "UserPromptSubmit"),
     ("PostToolUse",      "", "PostTool"),
     ("Stop",             "", "Stop"),
+    ("PreToolUse",   "Agent|Task",         "Subagents"),
     ("Notification", "permission_prompt",  "NeedsInput"),
     ("Notification", "elicitation_dialog", "NeedsInput"),
-    ("PreToolUse",   "AskUserQuestion",    "NeedsInput"),
+    ("PreToolUse",   "AskUserQuestion",    "Question"),
     ("SessionEnd",       "", "SessionEnd"),
 ]
 def has(arr, matcher, cmd):

@@ -87,8 +87,14 @@ by one hook script, `wave-claude-hook.sh`, added to `~/.claude/settings.json`
 | State | Flag color | Picker |
 |-------|-----------|--------|
 | session start / done | `#58c142` | 🟢 idle |
-| working (prompt submitted) | `#4a9eff` | 🔵 running |
+| working (prompt submitted / tool finished) | `#4a9eff` | 🔵 running |
+| subagents running (`Agent`/`Task` tool, e.g. subagent-driven dev) | `#a970ff` | 🟣 subagents |
 | needs input (permission / question) | `#e0b956` | 🟡 needs input |
+
+**Clickable notifications** — when a session needs you, a notification names the
+**workspace › tab** and **jumps to that tab when you click it** (posted via
+Hammerspoon so the click can switch tabs; falls back to a plain notification if
+the `hs` CLI isn't available).
 
 **Resume after a Wave restart** — when Wave restarts, its terminal tabs come back
 as fresh shells (the running `claude` process is gone). The hook records each

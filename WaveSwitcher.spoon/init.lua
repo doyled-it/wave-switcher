@@ -36,6 +36,16 @@ local WAVE_BUNDLE = "dev.commandline.waveterm"
 local scriptDir = debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "./"
 local LIST_SCRIPT = scriptDir .. "wave-sessions.sh"
 
+-- Query one scalar from Wave's SQLite state DB (read-only). Callers only pass
+-- UUIDs into the query, so no escaping is needed.
+local DB_PATH = os.getenv("HOME") .. "/Library/Application Support/waveterm/db/waveterm.db"
+local function sqlite1(query)
+  local out = hs.execute("/usr/bin/sqlite3 'file:" .. DB_PATH .. "?mode=ro' \"" .. query .. "\"")
+  if not out then return nil end
+  out = out:gsub("%s+$", "")
+  return out ~= "" and out or nil
+end
+
 -- Layout metrics (points)
 local CARD_W   = 620
 local PAD      = 28
@@ -106,8 +116,8 @@ local HTML = [==[
     color-scheme: dark;
     --bg:#181a1e; --text:#f2f3f5; --muted:#9aa1ac; --dim:#dfe2e7;
     --border:rgba(255,255,255,.10); --accent:#4a9eff; --sel:rgba(74,158,255,.16);
-    --run:#4a9eff; --need:#e0b956; --idle:#58c142; --none:#6b7280;
-    --run-bg:rgba(74,158,255,.15); --need-bg:rgba(224,185,86,.16);
+    --run:#4a9eff; --sub:#a970ff; --need:#e0b956; --idle:#58c142; --none:#6b7280;
+    --run-bg:rgba(74,158,255,.15); --sub-bg:rgba(169,112,255,.16); --need-bg:rgba(224,185,86,.16);
     --idle-bg:rgba(88,193,66,.16); --none-bg:rgba(120,130,140,.14);
     --shadow:0 24px 70px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.4);
   }
@@ -152,6 +162,7 @@ local HTML = [==[
   kbd{font-family:inherit;font-size:10.5px;color:var(--dim);background:rgba(255,255,255,.07);
     border:1px solid var(--border);border-radius:5px;padding:1px 6px;min-width:16px;text-align:center;}
   .st-running{color:var(--run);background:var(--run-bg)} .dot.running{background:var(--run)}
+  .st-sub{color:var(--sub);background:var(--sub-bg)} .dot.sub{background:var(--sub)}
   .st-needs{color:var(--need);background:var(--need-bg)} .dot.needs{background:var(--need)}
   .st-idle{color:var(--idle);background:var(--idle-bg)} .dot.idle{background:var(--idle)}
   .st-none{color:var(--none);background:var(--none-bg)} .dot.none{background:var(--none)}
@@ -177,6 +188,7 @@ local HTML = [==[
   var qEl = document.getElementById('q');
   var STATUS = {
     "running":     {cls:"running", pill:"st-running", label:"running"},
+    "subagents":   {cls:"sub",     pill:"st-sub",     label:"subagents"},
     "needs input": {cls:"needs",   pill:"st-needs",   label:"needs input"},
     "idle":        {cls:"idle",    pill:"st-idle",    label:"idle"},
   };
@@ -448,6 +460,28 @@ function obj:start()
   watcher = hs.application.watcher.new(refresh)
   watcher:start()
   refresh()
+  return self
+end
+
+--- WaveSwitcher:notify(wsId, tabId, kind)
+--- Method
+--- Post a clickable "needs input" notification (via Hammerspoon) that names the
+--- workspace and tab; clicking it jumps to that tab. Called from the Claude Code
+--- hook. `kind` is "question" for AskUserQuestion, otherwise a permission/input.
+---
+--- Returns:
+---  * The WaveSwitcher object
+function obj:notify(wsId, tabId, kind)
+  if not wsId or not tabId then return self end
+  local wsName  = sqlite1("SELECT json_extract(data,'$.name') FROM db_workspace WHERE json_extract(data,'$.oid')='" .. wsId .. "'")
+  local tabName = sqlite1("SELECT json_extract(data,'$.name') FROM db_tab WHERE json_extract(data,'$.oid')='" .. tabId .. "'")
+  local idx = tonumber(sqlite1(
+    "SELECT je.key+1 FROM db_workspace w, json_each(json_extract(w.data,'$.tabids')) je " ..
+    "WHERE json_extract(w.data,'$.oid')='" .. wsId .. "' AND je.value='" .. tabId .. "'"))
+  local title = (kind == "question") and "Claude has a question" or "Claude needs your input"
+  local sub = (wsName or "?") .. "  \226\128\186  " .. (tabName or "?") -- "  ›  "
+  hs.notify.new(function() switchTo(wsName, idx, false) end,
+    { title = title, subTitle = sub, withdrawAfter = 0 }):send()
   return self
 end
 

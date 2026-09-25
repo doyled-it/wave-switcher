@@ -27,6 +27,7 @@ SELECT COALESCE((
       COALESCE(json_extract(t.data,'\$.name'),'tab') AS tabname,
       CASE lower(COALESCE(json_extract(t.data,'\$.meta.\"tab:flagcolor\"'),''))
         WHEN '#4a9eff' THEN 'running'
+        WHEN '#a970ff' THEN 'subagents'
         WHEN '#e0b956' THEN 'needs input'
         WHEN '#58c142' THEN 'idle'
         ELSE '—' END AS status,
