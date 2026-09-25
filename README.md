@@ -7,19 +7,7 @@ grouped by workspace (project), each with a live status dot. Pick one and it jum
 straight to that workspace and tab — muscle memory borrowed from tools like
 Spotlight, Raycast, and `agent-view`.
 
-```
-┌────────────────────────────────────────────┐
-│ 🔍  bus|                                     │
-├────────────────────────────────────────────┤
-│  MAIN                                        │
-│    ● wave changes                  running   │
-│    ● misc.                            idle   │
-│  BUSTA                                       │
-│    ● 4.6 review                 needs input  │
-├────────────────────────────────────────────┤
-│  ↵ jump      ↑↓ / j k move      esc close    │
-└────────────────────────────────────────────┘
-```
+![WaveSwitcher demo](docs/demo.gif)
 
 - **Search** — type to fuzzy-filter across projects and tabs.
 - **Navigate** — `↑`/`↓`, `Ctrl+n`/`Ctrl+p`, or `j`/`k` (when the search box is empty).

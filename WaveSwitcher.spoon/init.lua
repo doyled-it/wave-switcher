@@ -72,16 +72,27 @@ end
 --------------------------------------------------------------------------------
 -- Switch action: workspace by name (menu), tab by number (native key)
 --------------------------------------------------------------------------------
-local function switchTo(wsName, tab)
+local function switchTo(wsName, tab, sameWs)
   local app = hs.application.get(WAVE_BUNDLE)
   if not app then return end
-  app:activate(true)
-  if wsName then app:selectMenuItem({ "Workspace", wsName }) end
-  hs.timer.doAfter(0.22, function()
+
+  local function sendTab()
     if tab and tab >= 1 and tab <= 9 then
-      hs.eventtap.keyStroke({ "cmd" }, tostring(tab)) -- default delay (a 0 gets dropped)
+      hs.eventtap.keyStroke({ "cmd" }, tostring(tab)) -- default key delay (a 0 gets dropped)
     end
-  end)
+  end
+
+  if sameWs then
+    -- Same workspace, and Wave is already the key window (the popup never takes
+    -- focus), so just switch the tab — no menu, minimal delay.
+    hs.timer.doAfter(0.02, sendTab)
+  else
+    -- Cross-workspace: select the workspace by name, then let it settle before
+    -- the tab key (the new workspace's tab bar needs a moment to be ready).
+    app:activate(true)
+    if wsName then app:selectMenuItem({ "Workspace", wsName }) end
+    hs.timer.doAfter(0.15, sendTab)
+  end
 end
 
 --------------------------------------------------------------------------------
@@ -305,10 +316,12 @@ open = function()
     return
   end
   P.query = ""; P.sel = 1
+  P.activeWs = nil
   refilter()
-  -- Pre-select the tab you came from (the active window's active tab).
+  -- Pre-select the tab you came from (the active window's active tab), and note
+  -- its workspace so a jump within it can skip the (slower) workspace switch.
   for i, e in ipairs(P.filtered) do
-    if e.current then P.sel = i; break end
+    if e.current then P.sel = i; P.activeWs = e.ws; break end
   end
 
   local groups, seen = 0, {}
@@ -373,8 +386,9 @@ end
 
 selectCurrent = function()
   local e = P.filtered[P.sel]
+  local sameWs = e and P.activeWs ~= nil and e.ws == P.activeWs
   close()
-  if e then switchTo(e.wsName, e.tab) end
+  if e then switchTo(e.wsName, e.tab, sameWs) end
 end
 
 close = function()
