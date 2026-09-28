@@ -17,13 +17,16 @@ exec /usr/bin/sqlite3 "file:$DB?mode=ro" "
 SELECT COALESCE((
   SELECT json_group_array(json_object(
     'ws', wsidx, 'wsName', wsname, 'color', wscolor,
-    'tab', tabpos, 'tabName', tabname, 'status', status, 'current', iscur))
+    'tab', tabpos, 'tabName', tabname, 'status', status, 'current', iscur,
+    'tabId', tabid, 'pinned', pinned))
   FROM (
     SELECT
       (SELECT COUNT(*) FROM db_workspace w2 WHERE w2.rowid <= w.rowid) AS wsidx,
       json_extract(w.data,'\$.name')  AS wsname,
       json_extract(w.data,'\$.color') AS wscolor,
       je.key + 1 AS tabpos,
+      je.value AS tabid,
+      CASE WHEN json_extract(t.data,'\$.meta.\"waveswitcher:pin\"') IN (1,'1') THEN 1 ELSE 0 END AS pinned,
       COALESCE(json_extract(t.data,'\$.name'),'tab') AS tabname,
       CASE lower(COALESCE(json_extract(t.data,'\$.meta.\"tab:flagcolor\"'),''))
         WHEN '#4a9eff' THEN 'running'

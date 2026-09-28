@@ -10,7 +10,8 @@ Spotlight, Raycast, and `agent-view`.
 ![WaveSwitcher demo](docs/demo.gif)
 
 - **Search** — type to fuzzy-filter across projects and tabs.
-- **Navigate** — `↑`/`↓`, `Ctrl+n`/`Ctrl+p`, or `j`/`k` (when the search box is empty).
+- **Navigate** — `↑`/`↓`, `Ctrl+n`/`Ctrl+p`, or `j`/`k` (when the search box is empty). Wraps around top↔bottom.
+- **Pin** — `Tab` pins/unpins the selected session; pinned ones float to a **PINNED** group at the top (persists per tab), so the sessions you're bouncing between stay one keypress away.
 - **Jump** — `Enter`. **Dismiss** — `Esc` or click outside.
 - **Live status** — each tab shows `running` / `needs input` / `idle` from its
   Wave flag color (see [Live status](#live-status-optional)).

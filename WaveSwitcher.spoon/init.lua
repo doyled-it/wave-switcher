@@ -39,6 +39,7 @@ local LIST_SCRIPT = scriptDir .. "wave-sessions.sh"
 -- Query one scalar from Wave's SQLite state DB (read-only). Callers only pass
 -- UUIDs into the query, so no escaping is needed.
 local DB_PATH = os.getenv("HOME") .. "/Library/Application Support/waveterm/db/waveterm.db"
+local WSH = os.getenv("HOME") .. "/Library/Application Support/waveterm/bin/wsh"
 local function sqlite1(query)
   local out = hs.execute("/usr/bin/sqlite3 'file:" .. DB_PATH .. "?mode=ro' \"" .. query .. "\"")
   if not out then return nil end
@@ -74,6 +75,8 @@ local function loadEntries()
       status = e.status or "—",
       color = e.color or "#888888",
       current = e.current == 1,
+      tabId = e.tabId,
+      pinned = e.pinned == 1,
     }
   end
   return entries
@@ -145,6 +148,9 @@ local HTML = [==[
   .group{display:flex;align-items:center;gap:8px;height:30px;padding:0 12px 0 10px;
     font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);}
   .group .wsdot{width:8px;height:8px;border-radius:2px;flex:none;}
+  .group.pinned{color:var(--accent);}
+  .group .pinicon{font-size:11px;line-height:1;}
+  .name .sep{color:var(--muted);margin:0 2px;}
   .row{display:flex;align-items:center;gap:11px;height:42px;padding:0 12px 0 24px;
     border-radius:10px;position:relative;}
   .row .bar{position:absolute;left:6px;top:50%;transform:translateY(-50%);width:3px;height:0;
@@ -180,6 +186,7 @@ local HTML = [==[
     <div class="footer">
       <span class="k"><kbd>↵</kbd> jump</span>
       <span class="k"><kbd>↑</kbd><kbd>↓</kbd> / <kbd>j</kbd><kbd>k</kbd> move</span>
+      <span class="k"><kbd>⇥</kbd> pin</span>
       <span class="k"><kbd>esc</kbd> close</span>
     </div>
   </div>
@@ -205,18 +212,26 @@ local HTML = [==[
       listEl.innerHTML = '<div class="empty">No matching work streams</div>';
       return;
     }
-    var html = '', curWs = null, ri = 0;
+    // rows are ordered pinned-first (from Lua). Pinned ones go under a single
+    // "PINNED" header showing project › tab; the rest are grouped by project.
+    var html = '', curWs = null, pinnedHeaderDone = false, ri = 0;
     for(var i=0;i<rows.length;i++){
       var e = rows[i];
-      if(e.ws !== curWs){
+      if(e.pinned){
+        if(!pinnedHeaderDone){
+          html += '<div class="group pinned"><span class="pinicon">★</span>PINNED</div>';
+          pinnedHeaderDone = true; curWs = null;
+        }
+      } else if(e.ws !== curWs){
         curWs = e.ws;
         html += '<div class="group"><span class="wsdot" style="background:'+esc(e.color)+'"></span>'
               + esc(e.wsName)+'</div>';
       }
       var st = statusOf(e.status);
+      var label = e.pinned ? (esc(e.wsName)+' <span class="sep">›</span> '+esc(e.tabName)) : esc(e.tabName);
       html += '<div class="row'+(ri===sel?' sel':'')+'" data-r="'+ri+'"><span class="bar"></span>'
             +   '<span class="dot '+st.cls+'"></span>'
-            +   '<span class="name">'+esc(e.tabName)+'</span>'
+            +   '<span class="name">'+label+'</span>'
             +   '<span class="pill '+st.pill+'">'+esc(st.label)+'</span></div>';
       ri++;
     }
@@ -237,7 +252,7 @@ local HTML = [==[
 local webview, keyTap, mouseTap, renderTimer
 local hotkey, watcher
 local P = { entries = {}, filtered = {}, query = "", sel = 1, dirty = false }
-local close, selectCurrent, open -- forward decls
+local close, selectCurrent, open, togglePin -- forward decls
 
 -- Encode a Lua string as a JS string literal. (hs.json.encode errors on a bare
 -- string — it only accepts tables — so we can't use it for the query.)
@@ -252,19 +267,24 @@ local function rowsJson(list)
   local rows = {}
   for _, e in ipairs(list) do
     rows[#rows + 1] = { ws = e.ws, wsName = e.wsName, tabName = e.tabName,
-                        status = e.status, color = e.color }
+                        status = e.status, color = e.color, pinned = e.pinned }
   end
   return hs.json.encode(rows)
 end
 
 local function refilter()
   local q = P.query:lower()
-  local out = {}
+  -- Partition into pinned-first, preserving data order within each group, so the
+  -- Lua selection index matches the display order (pinned shown first).
+  local pinned, rest = {}, {}
   for _, e in ipairs(P.entries) do
     if q == "" or (e.wsName .. " " .. e.tabName .. " " .. e.status):lower():find(q, 1, true) then
-      out[#out + 1] = e
+      if e.pinned then pinned[#pinned + 1] = e else rest[#rest + 1] = e end
     end
   end
+  local out = {}
+  for _, e in ipairs(pinned) do out[#out + 1] = e end
+  for _, e in ipairs(rest) do out[#out + 1] = e end
   P.filtered = out
   if P.sel > #out then P.sel = #out end
   if P.sel < 1 then P.sel = 1 end
@@ -286,10 +306,33 @@ local function renderNow()
 end
 
 local function moveSel(d)
+  local n = #P.filtered
+  if n == 0 then return end
   P.sel = P.sel + d
-  if P.sel < 1 then P.sel = 1 end
-  if P.sel > #P.filtered then P.sel = #P.filtered end
+  if P.sel < 1 then P.sel = n end     -- wrap top -> bottom
+  if P.sel > n then P.sel = 1 end     -- wrap bottom -> top
   scheduleRender()
+end
+
+-- Toggle the pin on the selected tab. Runs OUTSIDE the key tap (wsh + reload are
+-- slow); keeps the selection on the same tab after reordering.
+togglePin = function()
+  local e = P.filtered[P.sel]
+  if not (e and e.tabId) then return end
+  local newPinned = not e.pinned
+  -- Persist to Wave (survives restarts) ...
+  hs.execute("'" .. WSH .. "' setmeta -b " .. e.tabId ..
+             " 'waveswitcher:pin=" .. (newPinned and "1" or "") .. "'")
+  -- ... and update in memory immediately so the reorder is instant.
+  for _, ent in ipairs(P.entries) do
+    if ent.tabId == e.tabId then ent.pinned = newPinned end
+  end
+  local keep = e.tabId
+  refilter()
+  for i, ent in ipairs(P.filtered) do
+    if ent.tabId == keep then P.sel = i; break end
+  end
+  renderNow()
 end
 
 local function handleKey(e)
@@ -304,6 +347,7 @@ local function handleKey(e)
   end
   if key == "down" or (flags.ctrl and key == "n") then moveSel(1); return true end
   if key == "up" or (flags.ctrl and key == "p") then moveSel(-1); return true end
+  if key == "tab" then hs.timer.doAfter(0, togglePin); return true end
   if key == "delete" then -- backspace
     P.query = P.query:sub(1, -2); P.sel = 1; refilter(); scheduleRender(); return true
   end
@@ -336,10 +380,12 @@ open = function()
     if e.current then P.sel = i; P.activeWs = e.ws; break end
   end
 
-  local groups, seen = 0, {}
+  local groups, seen, anyPinned = 0, {}, false
   for _, e in ipairs(P.entries) do
-    if not seen[e.ws] then seen[e.ws] = true; groups = groups + 1 end
+    if e.pinned then anyPinned = true
+    elseif not seen[e.ws] then seen[e.ws] = true; groups = groups + 1 end
   end
+  if anyPinned then groups = groups + 1 end -- the "PINNED" header
   local contentH = #P.entries * ROW_H + groups * GROUP_H + LIST_PAD
   local maxListH = MAX_ROWS * ROW_H + 2 * GROUP_H + LIST_PAD
   local listH = math.min(contentH, maxListH)
