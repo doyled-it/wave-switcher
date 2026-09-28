@@ -39,7 +39,23 @@ local LIST_SCRIPT = scriptDir .. "wave-sessions.sh"
 -- Query one scalar from Wave's SQLite state DB (read-only). Callers only pass
 -- UUIDs into the query, so no escaping is needed.
 local DB_PATH = os.getenv("HOME") .. "/Library/Application Support/waveterm/db/waveterm.db"
-local WSH = os.getenv("HOME") .. "/Library/Application Support/waveterm/bin/wsh"
+
+-- Pinned tabs are a switcher concept, stored in our own JSON file (keyed by tab
+-- id). We can't use `wsh` for this: it refuses to run outside a Wave block
+-- (no WAVETERM_JWT in Hammerspoon's context).
+local PIN_FILE = hs.configdir .. "/waveswitcher-pins.json"
+local function readPins()
+  local f = io.open(PIN_FILE, "r")
+  if not f then return {} end
+  local s = f:read("*a"); f:close()
+  local ok, t = pcall(hs.json.decode, s)
+  return (ok and type(t) == "table") and t or {}
+end
+local function writePins(t)
+  local f = io.open(PIN_FILE, "w")
+  if not f then return end
+  f:write(hs.json.encode(t)); f:close()
+end
 local function sqlite1(query)
   local out = hs.execute("/usr/bin/sqlite3 'file:" .. DB_PATH .. "?mode=ro' \"" .. query .. "\"")
   if not out then return nil end
@@ -66,6 +82,7 @@ local function loadEntries()
   if not ok or not out or out == "" then return {} end
   local data = hs.json.decode(out)
   if type(data) ~= "table" then return {} end
+  local pins = readPins()
   local entries = {}
   for _, e in ipairs(data) do
     entries[#entries + 1] = {
@@ -76,7 +93,7 @@ local function loadEntries()
       color = e.color or "#888888",
       current = e.current == 1,
       tabId = e.tabId,
-      pinned = e.pinned == 1,
+      pinned = e.tabId ~= nil and pins[e.tabId] == true,
     }
   end
   return entries
@@ -320,10 +337,9 @@ togglePin = function()
   local e = P.filtered[P.sel]
   if not (e and e.tabId) then return end
   local newPinned = not e.pinned
-  -- Persist to Wave (survives restarts) ...
-  hs.execute("'" .. WSH .. "' setmeta -b " .. e.tabId ..
-             " 'waveswitcher:pin=" .. (newPinned and "1" or "") .. "'")
-  -- ... and update in memory immediately so the reorder is instant.
+  local pins = readPins()
+  pins[e.tabId] = newPinned or nil
+  writePins(pins)
   for _, ent in ipairs(P.entries) do
     if ent.tabId == e.tabId then ent.pinned = newPinned end
   end
