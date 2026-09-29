@@ -543,7 +543,7 @@ function obj:notify(wsId, tabId, kind)
   local title = (kind == "question") and "Claude has a question" or "Claude needs your input"
   local sub = (wsName or "?") .. "  \226\128\186  " .. (tabName or "?") -- "  ›  "
   hs.notify.new(function() switchTo(wsName, idx, false) end,
-    { title = title, subTitle = sub, withdrawAfter = 0 }):send()
+    { title = title, subTitle = sub, withdrawAfter = 6 }):send() -- ephemeral (auto-dismiss)
   return self
 end
 
