@@ -168,6 +168,7 @@ local HTML = [==[
   .group.pinned{color:var(--accent);}
   .group .pinicon{font-size:11px;line-height:1;}
   .name .sep{color:var(--muted);margin:0 2px;}
+  .name .ws{font-weight:600;}
   .row{display:flex;align-items:center;gap:11px;height:42px;padding:0 12px 0 24px;
     border-radius:10px;position:relative;}
   .row .bar{position:absolute;left:6px;top:50%;transform:translateY(-50%);width:3px;height:0;
@@ -245,9 +246,17 @@ local HTML = [==[
               + esc(e.wsName)+'</div>';
       }
       var st = statusOf(e.status);
-      var label = e.pinned ? (esc(e.wsName)+' <span class="sep">›</span> '+esc(e.tabName)) : esc(e.tabName);
+      // Pinned rows aren't under a project header, so show the workspace color
+      // as a chip and tint the project name to separate projects at a glance.
+      var label = e.pinned
+        ? '<span class="ws" style="color:'+esc(e.color)+'">'+esc(e.wsName)+'</span>'
+          + ' <span class="sep">›</span> '+esc(e.tabName)
+        : esc(e.tabName);
+      var wschip = e.pinned
+        ? '<span class="wsdot" style="background:'+esc(e.color)+'"></span>' : '';
       html += '<div class="row'+(ri===sel?' sel':'')+'" data-r="'+ri+'"><span class="bar"></span>'
             +   '<span class="dot '+st.cls+'"></span>'
+            +   wschip
             +   '<span class="name">'+label+'</span>'
             +   '<span class="pill '+st.pill+'">'+esc(st.label)+'</span></div>';
       ri++;
