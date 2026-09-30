@@ -190,6 +190,7 @@ local HTML = [==[
     color:var(--muted);font-variant-numeric:tabular-nums;}
   .usage .useg{display:inline-flex;gap:4px;} .usage .useg b{font-weight:600;}
   .usage .ok{color:var(--muted);} .usage .warn{color:var(--need);} .usage .crit{color:#ff5f56;}
+  .usage .ureset{color:var(--muted);opacity:.7;margin-left:3px;}
   .usage .udot{opacity:.45;}
   .st-running{color:var(--run);background:var(--run-bg)} .dot.running{background:var(--run)}
   .st-sub{color:var(--sub);background:var(--sub-bg)} .dot.sub{background:var(--sub)}
@@ -277,13 +278,27 @@ local HTML = [==[
     var el = document.getElementById('usage');
     if(!el) return;
     if(!u || u.session == null){ el.innerHTML = ''; return; }
-    function seg(label, pct){
+    function fmtReset(iso){
+      if(!iso) return '';
+      var t = new Date(iso).getTime();
+      if(isNaN(t)) return '';
+      var s = Math.max(0, Math.round((t - Date.now())/1000));
+      var d = Math.floor(s/86400), h = Math.floor((s%86400)/3600), m = Math.floor((s%3600)/60);
+      if(d > 0) return d+'d'+h+'h';
+      if(h > 0) return h+'h'+m+'m';
+      if(m > 0) return m+'m';
+      return '<1m';
+    }
+    function seg(label, pct, iso){
       if(pct == null) return '';
       var p = Math.round(pct);
       var cls = p >= 90 ? 'crit' : (p >= 70 ? 'warn' : 'ok');
-      return '<span class="useg '+cls+'">'+label+' <b>'+p+'%</b></span>';
+      var r = fmtReset(iso);
+      return '<span class="useg '+cls+'">'+label+' <b>'+p+'%</b></span>'
+           + (r ? '<span class="ureset" title="until reset">'+r+'</span>' : '');
     }
-    var parts = [seg('5h', u.session), seg('7d', u.week)].filter(Boolean);
+    var parts = [seg('5h', u.session, u.sessionResets),
+                 seg('7d', u.week, u.weekResets)].filter(Boolean);
     el.innerHTML = parts.join('<span class="udot">·</span>');
   };
 
