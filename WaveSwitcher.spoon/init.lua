@@ -277,7 +277,7 @@ local HTML = [==[
   window.setUsage = function(u){
     var el = document.getElementById('usage');
     if(!el) return;
-    if(!u || u.session == null){ el.innerHTML = ''; return; }
+    if(!u || !u.session){ el.innerHTML = ''; return; }
     function fmtReset(iso){
       if(!iso) return '';
       var t = new Date(iso).getTime();
@@ -289,17 +289,21 @@ local HTML = [==[
       if(m > 0) return m+'m';
       return '<1m';
     }
-    function seg(label, pct, iso){
-      if(pct == null) return '';
-      var p = Math.round(pct);
-      var cls = p >= 90 ? 'crit' : (p >= 70 ? 'warn' : 'ok');
-      var r = fmtReset(iso);
-      return '<span class="useg '+cls+'">'+label+' <b>'+p+'%</b></span>'
+    function clsFor(s){
+      if(s.sev) return s.sev==='critical' ? 'crit' : (s.sev==='warning' ? 'warn' : 'ok');
+      return s.util>=90 ? 'crit' : (s.util>=70 ? 'warn' : 'ok'); // fallback thresholds
+    }
+    function seg(label, s){
+      if(!s || s.util==null) return '';
+      var r = fmtReset(s.resets);
+      return '<span class="useg '+clsFor(s)+'">'+label+' <b>'+Math.round(s.util)+'%</b></span>'
            + (r ? '<span class="ureset" title="until reset">'+r+'</span>' : '');
     }
-    var parts = [seg('5h', u.session, u.sessionResets),
-                 seg('7d', u.week, u.weekResets)].filter(Boolean);
-    el.innerHTML = parts.join('<span class="udot">·</span>');
+    var parts = [ seg('5h', u.session), seg('7d', u.week),
+                  seg('opus', u.opus), seg('sonnet', u.sonnet) ];
+    if(u.credits && u.credits.util != null)
+      parts.push('<span class="useg ok">credits <b>'+Math.round(u.credits.util)+'%</b></span>');
+    el.innerHTML = parts.filter(Boolean).join('<span class="udot">·</span>');
   };
 
   // First paint from embedded data, so it shows before any JS is injected.
