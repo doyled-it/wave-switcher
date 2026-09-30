@@ -49,8 +49,9 @@ fetch init.lua            "$DEST/init.lua"
 fetch wave-sessions.sh    "$DEST/wave-sessions.sh"
 fetch wave-claude-hook.sh "$DEST/wave-claude-hook.sh"
 fetch wave-notify.sh      "$DEST/wave-notify.sh"
+fetch wave-usage.sh       "$DEST/wave-usage.sh"
 fetch resume.zsh          "$DEST/resume.zsh"
-chmod +x "$DEST/wave-sessions.sh" "$DEST/wave-claude-hook.sh" "$DEST/wave-notify.sh"
+chmod +x "$DEST/wave-sessions.sh" "$DEST/wave-claude-hook.sh" "$DEST/wave-notify.sh" "$DEST/wave-usage.sh"
 echo "Installed Spoon -> $DEST"
 
 # --- wire up Hammerspoon init.lua -----------------------------------------

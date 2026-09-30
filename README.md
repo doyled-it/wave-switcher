@@ -13,6 +13,7 @@ Spotlight, Raycast, and `agent-view`.
 - **Navigate** — `↑`/`↓`, `Ctrl+n`/`Ctrl+p`, or `j`/`k` (when the search box is empty). Wraps around top↔bottom.
 - **Pin** — `Tab` pins/unpins the selected session; pinned ones float to a **PINNED** group at the top (persists per tab), so the sessions you're bouncing between stay one keypress away.
 - **Jump** — `Enter`. **Dismiss** — `Esc` or click outside.
+- **Usage** — the footer shows your Claude subscription usage (5-hour **session** % and 7-day **week** %), colored as it climbs, so you can see how close you are to your limits without leaving the picker.
 - **Live status** — each tab shows `running` / `needs input` / `idle` from its
   Wave flag color (see [Live status](#live-status-optional)).
 
@@ -108,6 +109,17 @@ inside Claude's own tool shells.
 
 Requires Wave's `wsh` CLI (installed with Wave) on your `PATH`, and `python3`
 (built into macOS) for the settings merge.
+
+## Usage indicator
+
+The footer shows your Claude **subscription** usage — the same 5-hour session and
+7-day weekly percentages as Claude Code's `/usage` panel. It's read from the
+undocumented OAuth usage endpoint (`GET https://api.anthropic.com/api/oauth/usage`),
+authenticated with the token already in your macOS Keychain
+(`Claude Code-credentials`). The token is read locally and sent **only** to
+`api.anthropic.com`; results are cached 60s (`wave-usage.sh`). Since the endpoint
+is unofficial it may change or disappear — if it does, the line just goes blank
+and nothing else breaks.
 
 ## How it works
 

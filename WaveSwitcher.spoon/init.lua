@@ -35,6 +35,7 @@ local WAVE_BUNDLE = "dev.commandline.waveterm"
 -- Resolve the data script that sits next to this file inside the Spoon.
 local scriptDir = debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "./"
 local LIST_SCRIPT = scriptDir .. "wave-sessions.sh"
+local USAGE_SCRIPT = scriptDir .. "wave-usage.sh"
 
 -- Query one scalar from Wave's SQLite state DB (read-only). Callers only pass
 -- UUIDs into the query, so no escaping is needed.
@@ -185,6 +186,11 @@ local HTML = [==[
   .footer .k{display:inline-flex;gap:5px;align-items:center;}
   kbd{font-family:inherit;font-size:10.5px;color:var(--dim);background:rgba(255,255,255,.07);
     border:1px solid var(--border);border-radius:5px;padding:1px 6px;min-width:16px;text-align:center;}
+  .usage{margin-left:auto;display:flex;align-items:center;gap:7px;font-size:11px;
+    color:var(--muted);font-variant-numeric:tabular-nums;}
+  .usage .useg{display:inline-flex;gap:4px;} .usage .useg b{font-weight:600;}
+  .usage .ok{color:var(--muted);} .usage .warn{color:var(--need);} .usage .crit{color:#ff5f56;}
+  .usage .udot{opacity:.45;}
   .st-running{color:var(--run);background:var(--run-bg)} .dot.running{background:var(--run)}
   .st-sub{color:var(--sub);background:var(--sub-bg)} .dot.sub{background:var(--sub)}
   .st-needs{color:var(--need);background:var(--need-bg)} .dot.needs{background:var(--need)}
@@ -206,6 +212,7 @@ local HTML = [==[
       <span class="k"><kbd>↑</kbd><kbd>↓</kbd> / <kbd>j</kbd><kbd>k</kbd> move</span>
       <span class="k"><kbd>⇥</kbd> pin</span>
       <span class="k"><kbd>esc</kbd> close</span>
+      <span class="usage" id="usage"></span>
     </div>
   </div>
 <script>
@@ -265,9 +272,26 @@ local HTML = [==[
     var s = listEl.querySelector('.row.sel');
     if(s) s.scrollIntoView({block:'nearest'});
   };
+  // Subscription usage line (5h session + 7d week). Updated async from Hammerspoon.
+  window.setUsage = function(u){
+    var el = document.getElementById('usage');
+    if(!el) return;
+    if(!u || u.session == null){ el.innerHTML = ''; return; }
+    function seg(label, pct){
+      if(pct == null) return '';
+      var p = Math.round(pct);
+      var cls = p >= 90 ? 'crit' : (p >= 70 ? 'warn' : 'ok');
+      return '<span class="useg '+cls+'">'+label+' <b>'+p+'%</b></span>';
+    }
+    var parts = [seg('5h', u.session), seg('7d', u.week)].filter(Boolean);
+    el.innerHTML = parts.join('<span class="udot">·</span>');
+  };
+
   // First paint from embedded data, so it shows before any JS is injected.
   var DATA = /*__DATA__*/[];
   window.setData(DATA, /*__SEL__*/0, "");
+  var USAGE = /*__USAGE__*/null;
+  window.setUsage(USAGE);
 </script>
 </body></html>
 ]==]
@@ -277,6 +301,7 @@ local HTML = [==[
 --------------------------------------------------------------------------------
 local webview, keyTap, mouseTap, renderTimer
 local hotkey, watcher
+local lastUsage = nil -- cached {session, week, sessionResets, weekResets}
 local P = { entries = {}, filtered = {}, query = "", sel = 1, dirty = false }
 local close, selectCurrent, open, togglePin -- forward decls
 
@@ -329,6 +354,22 @@ local function renderNow()
   local js = "window.setData(" .. rowsJson(P.filtered) .. "," .. (P.sel - 1)
            .. "," .. jsStr(P.query) .. ")"
   webview:evaluateJavaScript(js, function() end)
+end
+
+-- Subscription usage (5h session + 7d week %), fetched async and cached.
+local function pushUsage()
+  if not webview then return end
+  local js = "window.setUsage(" .. (lastUsage and hs.json.encode(lastUsage) or "null") .. ")"
+  webview:evaluateJavaScript(js, function() end)
+end
+
+local function refreshUsage()
+  hs.task.new("/bin/zsh", function(_, out)
+    if out and out ~= "" then
+      local ok, u = pcall(hs.json.decode, out)
+      if ok and type(u) == "table" then lastUsage = u; pushUsage() end
+    end
+  end, { "-lc", USAGE_SCRIPT }):start()
 end
 
 local function moveSel(d)
@@ -423,6 +464,8 @@ open = function()
 
   local html = HTML:gsub("/%*__DATA__%*/%[%]", function() return rowsJson(P.filtered) end)
   html = html:gsub("/%*__SEL__%*/0", function() return tostring(P.sel - 1) end)
+  html = html:gsub("/%*__USAGE__%*/null",
+    function() return lastUsage and hs.json.encode(lastUsage) or "null" end)
 
   -- render-only webview: no allowTextEntry, never focused -> Wave stays key
   webview = hs.webview.new(rect, { developerExtrasEnabled = false })
@@ -439,6 +482,8 @@ open = function()
     if P.dirty and webview then P.dirty = false; renderNow() end
   end)
   renderTimer:start()
+
+  refreshUsage() -- async; updates the footer usage line when it returns
 
   if hotkey then hotkey:disable() end -- key tap owns the hotkey while open
 
