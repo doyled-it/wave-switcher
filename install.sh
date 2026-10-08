@@ -87,6 +87,7 @@ wanted = [
     ("UserPromptSubmit", "", "UserPromptSubmit"),
     ("PostToolUse",      "", "PostTool"),
     ("Stop",             "", "Stop"),
+    ("SubagentStop",     "", "SubStop"),
     ("PreToolUse",   "Agent|Task",         "Subagents"),
     ("Notification", "permission_prompt",  "NeedsInput"),
     ("Notification", "elicitation_dialog", "NeedsInput"),
