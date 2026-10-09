@@ -6,11 +6,13 @@
 # gold needs-input), records the session id for restart resume, and posts a
 # clickable notification when input is needed.
 #
-# "Subagents" is driven by a per-tab counter: +1 when an Agent/Task subagent is
-# dispatched (PreToolUse), -1 on SubagentStop. While the count is > 0 the tab is
-# purple -- which keeps it purple even after the main turn's Stop fires, because
-# detached/background subagents outlive the turn and only fire SubagentStop when
-# they actually finish. New prompts / session start reset the count.
+# "Subagents" is driven by a per-tab counter: +1 on SubagentStart, -1 on
+# SubagentStop. These fire for ANY subagent regardless of how it was launched
+# (Agent/Task tool, Workflow tool, etc.), unlike PreToolUse(Agent) which only
+# catches direct Agent-tool calls. While the count is > 0 the tab is purple --
+# which keeps it purple even after the main turn's Stop fires, because detached/
+# background subagents outlive the turn and only fire SubagentStop when they
+# actually finish. New prompts / session start reset the count.
 #
 # Depends only on Wave's `wsh`. Reads the hook JSON payload on stdin.
 
@@ -41,7 +43,7 @@ case "$event" in
     ;;
   SessionEnd)       wsh setmeta -b this "claude:resume=" >/dev/null 2>&1 ;;
   UserPromptSubmit) setn 0; flag "$BLUE" ;;
-  Subagents)        n=$(getn); setn $((n+1)); flag "$PURPLE" ;;              # Agent/Task dispatched
+  SubStart)         n=$(getn); setn $((n+1)); flag "$PURPLE" ;;              # a subagent started
   SubStop)          n=$(getn); n=$((n>0?n-1:0)); setn "$n"
                     [ "$n" -gt 0 ] && flag "$PURPLE" || flag "$GREEN" ;;      # a subagent finished
   Stop)             n=$(getn); [ "$n" -gt 0 ] && flag "$PURPLE" || flag "$GREEN" ;;
