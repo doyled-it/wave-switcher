@@ -6,13 +6,21 @@
 # gold needs-input), records the session id for restart resume, and posts a
 # clickable notification when input is needed.
 #
-# "Subagents" is driven by a per-tab counter: +1 on SubagentStart, -1 on
-# SubagentStop. These fire for ANY subagent regardless of how it was launched
-# (Agent/Task tool, Workflow tool, etc.), unlike PreToolUse(Agent) which only
-# catches direct Agent-tool calls. While the count is > 0 the tab is purple --
-# which keeps it purple even after the main turn's Stop fires, because detached/
-# background subagents outlive the turn and only fire SubagentStop when they
-# actually finish. New prompts / session start reset the count.
+# "Subagents" is driven by a per-tab SET of live subagent ids rather than a
+# counter. Each subagent carries a unique "agent_id" in the SubagentStart /
+# SubagentStop hook payloads; we add it on start and remove it on stop. The tab
+# is purple whenever the set is non-empty. A set is immune to the two ways a
+# counter desynced in practice:
+#   * SubagentStop fires more than once, or for a subagent whose SubagentStart
+#     we never saw (e.g. it started before this session was wired, or a nested
+#     stop) -- removing an absent id is a harmless no-op, instead of driving a
+#     counter below the true number of live subagents and flipping the tab green
+#     while subagents are still running.
+#   * Events double-fire -- adding/removing the same id twice is idempotent.
+# The set is reset only at SessionStart (a genuinely fresh session); it is NOT
+# reset on each prompt, because detached/background subagents (Workflow / SDD)
+# legitimately outlive the turn that launched them. A prune drops stale entries
+# whose SubagentStop was missed (crash), so the tab can't get stuck purple.
 #
 # Depends only on Wave's `wsh`. Reads the hook JSON payload on stdin.
 
@@ -31,23 +39,36 @@ GOLD="#e0b956"    # needs your input
 
 flag() { wsh setmeta -b tab "tab:flagcolor=$1" >/dev/null 2>&1; }
 
-CNT="${TMPDIR:-/tmp}/wsw-subs-${WAVETERM_TABID:-unknown}"  # active-subagent count
-getn() { local n; n="$(cat "$CNT" 2>/dev/null)"; case "$n" in ''|*[!0-9]*) echo 0;; *) echo "$n";; esac; }
-setn() { printf '%s' "$1" > "$CNT" 2>/dev/null; }
+# --- live-subagent set: one marker file per agent_id, in a per-tab dir --------
+SUBDIR="${TMPDIR:-/tmp}/wsw-subs-${WAVETERM_TABID:-unknown}.d"
+STALE_MIN=120                               # drop markers older than this (missed stop)
+sub_add()   { [ -n "$1" ] && { mkdir -p "$SUBDIR" 2>/dev/null; : > "$SUBDIR/$1" 2>/dev/null; }; }
+sub_del()   { [ -n "$1" ] && rm -f "$SUBDIR/$1" 2>/dev/null; }
+sub_reset() { rm -rf "$SUBDIR" 2>/dev/null; }
+sub_prune() { [ -d "$SUBDIR" ] && find "$SUBDIR" -type f -mmin +$STALE_MIN -delete 2>/dev/null; }
+sub_active() { sub_prune; [ -d "$SUBDIR" ] && [ -n "$(ls -A "$SUBDIR" 2>/dev/null)" ]; }  # 0 = subagents live
+
+# TEMP DEBUG: set a flag file at ${TMPDIR}/wsw-debug to log every invocation.
+if [ -n "$WSW_DEBUG" ] || [ -f "${TMPDIR:-/tmp}/wsw-debug" ]; then
+  sub_active && act=Y || act=N
+  printf '%s tab=%s ev=%-16s tool=%-18s aid=%-18s active=%s\n' \
+    "$(date +%H:%M:%S)" "${WAVETERM_TABID:0:8}" "$event" "$(field tool_name)" "$(field agent_id)" "$act" \
+    >> "${TMPDIR:-/tmp}/wsw-hook.log" 2>/dev/null
+fi
 
 case "$event" in
   SessionStart)
-    setn 0; flag "$GREEN"
+    sub_reset; flag "$GREEN"
     sid="$(field session_id)"
     [ -n "$sid" ] && wsh setmeta -b this "claude:resume=$sid" >/dev/null 2>&1
     ;;
   SessionEnd)       wsh setmeta -b this "claude:resume=" >/dev/null 2>&1 ;;
-  UserPromptSubmit) setn 0; flag "$BLUE" ;;
-  SubStart)         n=$(getn); setn $((n+1)); flag "$PURPLE" ;;              # a subagent started
-  SubStop)          n=$(getn); n=$((n>0?n-1:0)); setn "$n"
-                    [ "$n" -gt 0 ] && flag "$PURPLE" || flag "$GREEN" ;;      # a subagent finished
-  Stop)             n=$(getn); [ "$n" -gt 0 ] && flag "$PURPLE" || flag "$GREEN" ;;
-  PostTool)         n=$(getn); [ "$n" -gt 0 ] && flag "$PURPLE" || flag "$BLUE" ;;
+  UserPromptSubmit) sub_active && flag "$PURPLE" || flag "$BLUE" ;;   # keep prior live subagents
+  SubStart)         sub_add "$(field agent_id)"; flag "$PURPLE" ;;    # a subagent started
+  SubStop)          sub_del "$(field agent_id)"
+                    sub_active && flag "$PURPLE" || flag "$GREEN" ;;  # a subagent finished
+  Stop)             sub_active && flag "$PURPLE" || flag "$GREEN" ;;
+  PostTool)         sub_active && flag "$PURPLE" || flag "$BLUE" ;;
   NeedsInput)       flag "$GOLD"; "$here/wave-notify.sh" input    >/dev/null 2>&1 ;;
   Question)         flag "$GOLD"; "$here/wave-notify.sh" question >/dev/null 2>&1 ;;
 esac
