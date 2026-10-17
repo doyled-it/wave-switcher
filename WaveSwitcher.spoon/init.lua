@@ -15,7 +15,7 @@
 --- Status colors come from each tab's Wave "flag color". See the README for an
 --- optional Claude Code hook setup that keeps those flags in sync automatically.
 ---
---- Homepage: https://gitlab.mitre.org/mdoyle/wave-switcher
+--- Homepage: https://github.com/doyled-it/wave-switcher
 
 local obj = {}
 obj.__index = obj
@@ -24,7 +24,7 @@ obj.__index = obj
 obj.name = "WaveSwitcher"
 obj.version = "1.0.0"
 obj.author = "mdoyle"
-obj.homepage = "https://gitlab.mitre.org/mdoyle/wave-switcher"
+obj.homepage = "https://github.com/doyled-it/wave-switcher"
 obj.license = "MIT - https://opensource.org/licenses/MIT"
 
 --------------------------------------------------------------------------------

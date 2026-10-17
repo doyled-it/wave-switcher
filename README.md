@@ -27,10 +27,16 @@ Spotlight, Raycast, and `agent-view`.
 
 ## Install
 
-Clone and run the installer (works with your existing gitlab.mitre.org SSH access):
+One line:
 
 ```sh
-git clone git@gitlab.mitre.org:mdoyle/wave-switcher.git
+curl -fsSL https://raw.githubusercontent.com/doyled-it/wave-switcher/main/install.sh | sh
+```
+
+Or clone and run the installer:
+
+```sh
+git clone https://github.com/doyled-it/wave-switcher.git
 cd wave-switcher
 ./install.sh
 ```
@@ -38,18 +44,6 @@ cd wave-switcher
 The installer copies the Spoon into `~/.hammerspoon/Spoons/`, adds three lines to
 your `~/.hammerspoon/init.lua`, and reloads Hammerspoon. It won't touch anything
 if Hammerspoon isn't installed (`brew install --cask hammerspoon`).
-
-<details>
-<summary>One-line <code>curl | sh</code> install</summary>
-
-```sh
-curl -fsSL https://gitlab.mitre.org/mdoyle/wave-switcher/-/raw/main/install.sh | sh
-```
-
-This only works if you can fetch the repo's raw files unauthenticated — i.e. the
-project is **public**. For an **internal** project an unauthenticated `curl` is
-redirected to the login page, so use the clone method above instead.
-</details>
 
 Then, **once**:
 

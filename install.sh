@@ -2,7 +2,7 @@
 # WaveSwitcher installer.
 #
 # One-line install:
-#   curl -fsSL https://gitlab.mitre.org/mdoyle/wave-switcher/-/raw/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/doyled-it/wave-switcher/main/install.sh | sh
 # Or from a local clone:
 #   ./install.sh
 #
@@ -12,7 +12,7 @@
 # Override the download source with WAVESWITCHER_RAW.
 set -e
 
-RAW="${WAVESWITCHER_RAW:-https://gitlab.mitre.org/mdoyle/wave-switcher/-/raw/main}"
+RAW="${WAVESWITCHER_RAW:-https://raw.githubusercontent.com/doyled-it/wave-switcher/main}"
 DEST="$HOME/.hammerspoon/Spoons/WaveSwitcher.spoon"
 INIT="$HOME/.hammerspoon/init.lua"
 ZSHRC="$HOME/.zshrc"
