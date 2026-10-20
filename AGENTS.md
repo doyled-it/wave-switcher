@@ -110,8 +110,19 @@ interaction.
   `P.dirty`; a separate repeating `renderTimer` (clean context) does the render.
   `togglePin` is the exception: it runs via `hs.timer.doAfter(0, ...)`, outside
   the tap.
-- **Pins live in a JSON file** (`~/.hammerspoon/waveswitcher-pins.json`), not Wave
-  metadata, because Hammerspoon has no `WAVETERM_JWT` and so cannot use `wsh`.
+- **Pins and follow-up flags live in JSON files** (`waveswitcher-pins.json`,
+  `waveswitcher-followups.json` under `hs.configdir`), not Wave metadata, because
+  Hammerspoon has no `WAVETERM_JWT` and so cannot use `wsh`. Both are keyed by tab
+  id and share `readJsonMap`/`writeJsonMap`. Pins map `tabId -> true` and float to
+  the PINNED group; follow-ups map `tabId -> note` (`""` = flagged, no note), do
+  NOT reorder the list (inline amber flag marker only), and auto-clear when you
+  jump to the session. Because `P.filtered` holds the same entry tables as
+  `P.entries`, a flag toggle mutates the entry in place and just re-renders.
+- **Follow-up note entry is a sub-mode of the key tap.** `Ctrl+F` on an unflagged
+  row flags it and sets `P.noteMode`; while that is true, `handleKey` routes
+  keystrokes into `P.noteText` (not the search query) until `Enter` (save) or
+  `Esc` (keep flag, drop the text). `setData(rows, sel, query, noteMode, noteText)`
+  renders the note-input line when `noteMode` is set.
 - **Subagents are tracked as a set of marker files**, one per `agent_id`, not a
   counter (`$TMPDIR/wsw-subs-<tabid>.d/`). This is deliberate: counters desynced
   when `SubagentStop` double-fired or fired for an unseen start. The set is reset

@@ -12,6 +12,7 @@ Spotlight, Raycast, and `agent-view`.
 - **Search** — type to fuzzy-filter across projects and tabs.
 - **Navigate** — `↑`/`↓`, `Ctrl+n`/`Ctrl+p`, or `j`/`k` (when the search box is empty). Wraps around top↔bottom.
 - **Pin** — `Tab` pins/unpins the selected session; pinned ones float to a **PINNED** group at the top (persists per tab), so the sessions you're bouncing between stay one keypress away.
+- **Follow-up** — `Ctrl+F` flags the selected session for follow-up, with an optional short note (type it right after flagging, `Enter` to save). Flagged rows get an amber flag marker and their note shown inline, so an idle session you need to circle back to stays easy to spot. Jumping to a flagged session clears its flag; `Ctrl+F` again also clears it.
 - **Jump** — `Enter`. **Dismiss** — `Esc` or click outside.
 - **Usage** — the footer shows your Claude subscription usage (5-hour **session** % and 7-day **week** %), colored as it climbs, so you can see how close you are to your limits without leaving the picker.
 - **Live status** — each tab shows `running` / `subagents` / `shell` /

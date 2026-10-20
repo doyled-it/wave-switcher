@@ -41,22 +41,28 @@ local USAGE_SCRIPT = scriptDir .. "wave-usage.sh"
 -- UUIDs into the query, so no escaping is needed.
 local DB_PATH = os.getenv("HOME") .. "/Library/Application Support/waveterm/db/waveterm.db"
 
--- Pinned tabs are a switcher concept, stored in our own JSON file (keyed by tab
--- id). We can't use `wsh` for this: it refuses to run outside a Wave block
--- (no WAVETERM_JWT in Hammerspoon's context).
-local PIN_FILE = hs.configdir .. "/waveswitcher-pins.json"
-local function readPins()
-  local f = io.open(PIN_FILE, "r")
+-- Pins and follow-up flags are switcher concepts, each stored in our own JSON
+-- file keyed by tab id. We can't use `wsh` for this: it refuses to run outside a
+-- Wave block (no WAVETERM_JWT in Hammerspoon's context). Pins map tabId -> true;
+-- follow-ups map tabId -> note string ("" = flagged with no note).
+local PIN_FILE      = hs.configdir .. "/waveswitcher-pins.json"
+local FOLLOWUP_FILE = hs.configdir .. "/waveswitcher-followups.json"
+local function readJsonMap(path)
+  local f = io.open(path, "r")
   if not f then return {} end
   local s = f:read("*a"); f:close()
   local ok, t = pcall(hs.json.decode, s)
   return (ok and type(t) == "table") and t or {}
 end
-local function writePins(t)
-  local f = io.open(PIN_FILE, "w")
+local function writeJsonMap(path, t)
+  local f = io.open(path, "w")
   if not f then return end
   f:write(hs.json.encode(t)); f:close()
 end
+local function readPins()        return readJsonMap(PIN_FILE) end
+local function writePins(t)      writeJsonMap(PIN_FILE, t) end
+local function readFollowups()   return readJsonMap(FOLLOWUP_FILE) end
+local function writeFollowups(t) writeJsonMap(FOLLOWUP_FILE, t) end
 local function sqlite1(query)
   local out = hs.execute("/usr/bin/sqlite3 'file:" .. DB_PATH .. "?mode=ro' \"" .. query .. "\"")
   if not out then return nil end
@@ -84,8 +90,10 @@ local function loadEntries()
   local data = hs.json.decode(out)
   if type(data) ~= "table" then return {} end
   local pins = readPins()
+  local followups = readFollowups()
   local entries = {}
   for _, e in ipairs(data) do
+    local note = e.tabId ~= nil and followups[e.tabId] or nil
     entries[#entries + 1] = {
       ws = e.ws, tab = e.tab,
       wsName = e.wsName or "?",
@@ -95,6 +103,8 @@ local function loadEntries()
       current = e.current == 1,
       tabId = e.tabId,
       pinned = e.tabId ~= nil and pins[e.tabId] == true,
+      flagged = note ~= nil,
+      note = note,
     }
   end
   return entries
@@ -136,7 +146,7 @@ local HTML = [==[
   :root{
     color-scheme: dark;
     --bg:#181a1e; --text:#f2f3f5; --muted:#9aa1ac; --dim:#dfe2e7;
-    --border:rgba(255,255,255,.10); --accent:#4a9eff; --sel:rgba(74,158,255,.16);
+    --border:rgba(255,255,255,.10); --accent:#4a9eff; --sel:rgba(74,158,255,.16); --flag:#ffb454;
     --run:#4a9eff; --sub:#a970ff; --shell:#20c4b0; --need:#e0b956; --idle:#58c142; --none:#6b7280;
     --run-bg:rgba(74,158,255,.15); --sub-bg:rgba(169,112,255,.16); --shell-bg:rgba(32,196,176,.16);
     --need-bg:rgba(224,185,86,.16);
@@ -171,6 +181,9 @@ local HTML = [==[
   .group .pinicon{font-size:11px;line-height:1;}
   .name .sep{color:var(--muted);margin:0 2px;}
   .name .ws{font-weight:600;}
+  .name .note{color:var(--muted);font-size:12.5px;margin-left:8px;opacity:.9;font-style:italic;}
+  .flag{color:var(--flag);font-size:13px;line-height:1;flex:none;}
+  .noteprompt{color:var(--flag);font-weight:600;}
   .row{display:flex;align-items:center;gap:11px;height:42px;padding:0 12px 0 24px;
     border-radius:10px;position:relative;}
   .row .bar{position:absolute;left:6px;top:50%;transform:translateY(-50%);width:3px;height:0;
@@ -214,6 +227,7 @@ local HTML = [==[
       <span class="k"><kbd>↵</kbd> jump</span>
       <span class="k"><kbd>↑</kbd><kbd>↓</kbd> / <kbd>j</kbd><kbd>k</kbd> move</span>
       <span class="k"><kbd>⇥</kbd> pin</span>
+      <span class="k"><kbd>&#8963;F</kbd> flag</span>
       <span class="k"><kbd>esc</kbd> close</span>
       <span class="usage" id="usage"></span>
     </div>
@@ -233,10 +247,16 @@ local HTML = [==[
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
 
   // Called from Hammerspoon on every keystroke. rows: filtered list; sel: 0-based.
-  window.setData = function(rows, sel, query){
-    qEl.innerHTML = (query && query.length)
-      ? esc(query) + '<span class="caret"></span>'
-      : '<span class="ph">Jump to a work stream…</span><span class="caret"></span>';
+  // noteMode/noteText drive the follow-up note-entry input line.
+  window.setData = function(rows, sel, query, noteMode, noteText){
+    if(noteMode){
+      qEl.innerHTML = '<span class="noteprompt">&#9873; Note (optional): </span>'
+        + esc(noteText || '') + '<span class="caret"></span>';
+    } else {
+      qEl.innerHTML = (query && query.length)
+        ? esc(query) + '<span class="caret"></span>'
+        : '<span class="ph">Jump to a work stream…</span><span class="caret"></span>';
+    }
     if(!rows || rows.length === 0){
       listEl.innerHTML = '<div class="empty">No matching work streams</div>';
       return;
@@ -263,11 +283,16 @@ local HTML = [==[
         ? '<span class="ws" style="color:'+esc(e.color)+'">'+esc(e.wsName)+'</span>'
           + ' <span class="sep">›</span> '+esc(e.tabName)
         : esc(e.tabName);
+      // Follow-up: a flagged row shows an amber flag glyph, and its note (if any)
+      // dim after the tab name. The row stays in its normal workspace group.
+      if(e.flagged && e.note){ label += '<span class="note">'+esc(e.note)+'</span>'; }
+      var flagicon = e.flagged ? '<span class="flag">&#9873;</span>' : '';
       var wschip = e.pinned
         ? '<span class="wsdot" style="background:'+esc(e.color)+'"></span>' : '';
       html += '<div class="row'+(ri===sel?' sel':'')+'" data-r="'+ri+'"><span class="bar"></span>'
             +   '<span class="dot '+st.cls+'"></span>'
             +   wschip
+            +   flagicon
             +   '<span class="name">'+label+'</span>'
             +   '<span class="pill '+st.pill+'">'+esc(st.label)+'</span></div>';
       ri++;
@@ -325,7 +350,7 @@ local webview, keyTap, mouseTap, renderTimer
 local hotkey, watcher
 local lastUsage = nil -- cached {session, week, sessionResets, weekResets}
 local P = { entries = {}, filtered = {}, query = "", sel = 1, dirty = false }
-local close, selectCurrent, open, togglePin -- forward decls
+local close, selectCurrent, open, togglePin, toggleFollowup -- forward decls
 
 -- Encode a Lua string as a JS string literal. (hs.json.encode errors on a bare
 -- string — it only accepts tables — so we can't use it for the query.)
@@ -340,7 +365,8 @@ local function rowsJson(list)
   local rows = {}
   for _, e in ipairs(list) do
     rows[#rows + 1] = { ws = e.ws, wsName = e.wsName, tabName = e.tabName,
-                        status = e.status, color = e.color, pinned = e.pinned }
+                        status = e.status, color = e.color, pinned = e.pinned,
+                        flagged = e.flagged, note = e.note }
   end
   return hs.json.encode(rows)
 end
@@ -351,7 +377,7 @@ local function refilter()
   -- Lua selection index matches the display order (pinned shown first).
   local pinned, rest = {}, {}
   for _, e in ipairs(P.entries) do
-    if q == "" or (e.wsName .. " " .. e.tabName .. " " .. e.status):lower():find(q, 1, true) then
+    if q == "" or (e.wsName .. " " .. e.tabName .. " " .. e.status .. " " .. (e.note or "")):lower():find(q, 1, true) then
       if e.pinned then pinned[#pinned + 1] = e else rest[#rest + 1] = e end
     end
   end
@@ -373,8 +399,9 @@ end
 
 local function renderNow()
   if not webview then return end
+  local noteArgs = P.noteMode and ("true," .. jsStr(P.noteText or "")) or 'false,""'
   local js = "window.setData(" .. rowsJson(P.filtered) .. "," .. (P.sel - 1)
-           .. "," .. jsStr(P.query) .. ")"
+           .. "," .. jsStr(P.query) .. "," .. noteArgs .. ")"
   webview:evaluateJavaScript(js, function() end)
 end
 
@@ -423,9 +450,59 @@ togglePin = function()
   renderNow()
 end
 
+-- Toggle the follow-up flag on the selected tab. Flagging a fresh session drops
+-- into note-entry mode so you can optionally type a short reminder; flagging an
+-- already-flagged one clears it. Follow-ups don't reorder the list (unlike pins),
+-- so the entry is mutated in place (P.filtered holds the same tables as P.entries)
+-- and we just re-render. Runs OUTSIDE the key tap.
+toggleFollowup = function()
+  local e = P.filtered[P.sel]
+  if not (e and e.tabId) then return end
+  local fups = readFollowups()
+  if e.flagged then
+    fups[e.tabId] = nil; writeFollowups(fups)
+    e.flagged = false; e.note = nil
+    renderNow()
+  else
+    fups[e.tabId] = ""; writeFollowups(fups)
+    e.flagged = true; e.note = ""
+    P.noteMode = true; P.noteTabId = e.tabId; P.noteText = ""
+    renderNow()
+  end
+end
+
 local function handleKey(e)
   local flags = e:getFlags()
   local key = hs.keycodes.map[e:getKeyCode()]
+
+  -- Note-entry mode: keystrokes build the follow-up note for the just-flagged
+  -- tab. Enter saves it; Esc keeps the flag but discards the in-progress text.
+  if P.noteMode then
+    if key == "return" or key == "padenter" then
+      local fups = readFollowups()
+      if P.noteTabId then fups[P.noteTabId] = P.noteText or "" end
+      writeFollowups(fups)
+      for _, ent in ipairs(P.entries) do
+        if ent.tabId == P.noteTabId then ent.note = P.noteText or "" end
+      end
+      P.noteMode = false; P.noteTabId = nil; P.noteText = ""
+      scheduleRender(); return true
+    end
+    if key == "escape" then
+      P.noteMode = false; P.noteTabId = nil; P.noteText = ""
+      scheduleRender(); return true
+    end
+    if key == "delete" then -- backspace
+      P.noteText = (P.noteText or ""):sub(1, -2); scheduleRender(); return true
+    end
+    if not (flags.cmd or flags.ctrl or flags.alt) then
+      local ch = e:getCharacters(true)
+      if ch and #ch >= 1 and ch:byte(1) >= 32 then
+        P.noteText = (P.noteText or "") .. ch; scheduleRender(); return true
+      end
+    end
+    return true -- consume everything else while entering a note
+  end
 
   if key == "escape" or (flags.ctrl and key == "k") then
     hs.timer.doAfter(0, close); return true
@@ -436,6 +513,7 @@ local function handleKey(e)
   if key == "down" or (flags.ctrl and key == "n") then moveSel(1); return true end
   if key == "up" or (flags.ctrl and key == "p") then moveSel(-1); return true end
   if key == "tab" then hs.timer.doAfter(0, togglePin); return true end
+  if flags.ctrl and key == "f" then hs.timer.doAfter(0, toggleFollowup); return true end
   if key == "delete" then -- backspace
     P.query = P.query:sub(1, -2); P.sel = 1; refilter(); scheduleRender(); return true
   end
@@ -461,6 +539,7 @@ open = function()
   end
   P.query = ""; P.sel = 1
   P.activeWs = nil
+  P.noteMode = false; P.noteTabId = nil; P.noteText = ""
   refilter()
   -- Pre-select the tab you came from (the active window's active tab), and note
   -- its workspace so a jump within it can skip the (slower) workspace switch.
@@ -537,6 +616,12 @@ end
 selectCurrent = function()
   local e = P.filtered[P.sel]
   local sameWs = e and P.activeWs ~= nil and e.ws == P.activeWs
+  -- Jumping to a flagged session clears its follow-up: you've returned to it.
+  if e and e.flagged and e.tabId then
+    local fups = readFollowups()
+    fups[e.tabId] = nil
+    writeFollowups(fups)
+  end
   close()
   if e then switchTo(e.wsName, e.tab, sameWs) end
 end
