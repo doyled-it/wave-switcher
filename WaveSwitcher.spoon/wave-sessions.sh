@@ -7,7 +7,7 @@
 # Output: [{ ws, wsName, color, tab, tabName, status, current }, ...]
 #   ws      = 1-based workspace index (matches the Workspace menu order)
 #   tab     = 1-based tab index within the workspace (matches Cmd+<n>)
-#   status  = running | needs input | idle | —   (from the tab's flag color)
+#   status  = running | subagents | shell | needs input | idle | —   (tab flag color)
 #   current = 1 if this is the active tab of the active window (else 0)
 
 DB="$HOME/Library/Application Support/waveterm/db/waveterm.db"
@@ -30,6 +30,7 @@ SELECT COALESCE((
       CASE lower(COALESCE(json_extract(t.data,'\$.meta.\"tab:flagcolor\"'),''))
         WHEN '#4a9eff' THEN 'running'
         WHEN '#a970ff' THEN 'subagents'
+        WHEN '#20c4b0' THEN 'shell'
         WHEN '#e0b956' THEN 'needs input'
         WHEN '#58c142' THEN 'idle'
         ELSE '—' END AS status,

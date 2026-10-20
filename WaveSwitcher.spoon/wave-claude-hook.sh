@@ -35,6 +35,7 @@ field() {
 GREEN="#58c142"   # idle / done
 BLUE="#4a9eff"    # running
 PURPLE="#a970ff"  # subagents active
+TEAL="#20c4b0"    # idle, but a background shell task is still running
 GOLD="#e0b956"    # needs your input
 
 flag() { wsh setmeta -b tab "tab:flagcolor=$1" >/dev/null 2>&1; }
@@ -48,11 +49,43 @@ sub_reset() { rm -rf "$SUBDIR" 2>/dev/null; }
 sub_prune() { [ -d "$SUBDIR" ] && find "$SUBDIR" -type f -mmin +$STALE_MIN -delete 2>/dev/null; }
 sub_active() { sub_prune; [ -d "$SUBDIR" ] && [ -n "$(ls -A "$SUBDIR" 2>/dev/null)" ]; }  # 0 = subagents live
 
+# --- background shell task -----------------------------------------------------
+# When Claude finishes a turn, its hook payload carries "background_tasks": the
+# work still in flight (a script / dev server it launched and left running). If
+# any non-subagent task is running the session is "shell", not idle. Subagent
+# tasks (they carry "agent_type") are excluded -- they are the purple state.
+bg_shell_active() {  # 0 = a non-subagent background task is running
+  printf '%s' "$payload" | python3 -c '
+import json, sys
+try:
+    tasks = (json.load(sys.stdin) or {}).get("background_tasks") or []
+except Exception:
+    sys.exit(1)
+sys.exit(0 if any(not t.get("agent_type") for t in tasks) else 1)
+' 2>/dev/null
+}
+
+# Pick the color when work settles (turn ends, or a subagent stops): purple if
+# subagents are live, else teal if a background shell task is still running,
+# else green (truly idle and ready for the next message).
+settle_idle() {
+  if sub_active; then flag "$PURPLE"
+  elif bg_shell_active; then flag "$TEAL"
+  else flag "$GREEN"; fi
+}
+
 # TEMP DEBUG: set a flag file at ${TMPDIR}/wsw-debug to log every invocation.
 if [ -n "$WSW_DEBUG" ] || [ -f "${TMPDIR:-/tmp}/wsw-debug" ]; then
   sub_active && act=Y || act=N
-  printf '%s tab=%s ev=%-16s tool=%-18s aid=%-18s active=%s\n' \
-    "$(date +%H:%M:%S)" "${WAVETERM_TABID:0:8}" "$event" "$(field tool_name)" "$(field agent_id)" "$act" \
+  bg_shell_active && bga=Y || bga=N
+  printf '%s tab=%s ev=%-16s tool=%-18s aid=%-18s subs=%s bg=%s\n' \
+    "$(date +%H:%M:%S)" "${WAVETERM_TABID:0:8}" "$event" "$(field tool_name)" "$(field agent_id)" "$act" "$bga" \
+    >> "${TMPDIR:-/tmp}/wsw-hook.log" 2>/dev/null
+  # Log just the background_tasks array (not the prompt text) to learn its shape.
+  printf '%s' "$payload" | python3 -c 'import json,sys
+try: d=json.load(sys.stdin) or {}
+except Exception: d={}
+print("   background_tasks="+json.dumps(d.get("background_tasks")))' \
     >> "${TMPDIR:-/tmp}/wsw-hook.log" 2>/dev/null
 fi
 
@@ -65,9 +98,8 @@ case "$event" in
   SessionEnd)       wsh setmeta -b this "claude:resume=" >/dev/null 2>&1 ;;
   UserPromptSubmit) sub_active && flag "$PURPLE" || flag "$BLUE" ;;   # keep prior live subagents
   SubStart)         sub_add "$(field agent_id)"; flag "$PURPLE" ;;    # a subagent started
-  SubStop)          sub_del "$(field agent_id)"
-                    sub_active && flag "$PURPLE" || flag "$GREEN" ;;  # a subagent finished
-  Stop)             sub_active && flag "$PURPLE" || flag "$GREEN" ;;
+  SubStop)          sub_del "$(field agent_id)"; settle_idle ;;        # a subagent finished
+  Stop)             settle_idle ;;                                     # turn ended
   PostTool)         sub_active && flag "$PURPLE" || flag "$BLUE" ;;
   NeedsInput)       flag "$GOLD"; "$here/wave-notify.sh" input    >/dev/null 2>&1 ;;
   Question)         flag "$GOLD"; "$here/wave-notify.sh" question >/dev/null 2>&1 ;;

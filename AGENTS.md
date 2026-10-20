@@ -19,11 +19,16 @@ Edit, then reload Hammerspoon to pick up changes:
 
 ```sh
 hs -c 'hs.reload()'                              # reload the running config
+./tests/hook_status_test.sh                      # unit-test the hook's status/color decisions
 ./WaveSwitcher.spoon/wave-sessions.sh | python3 -m json.tool   # inspect the listing JSON
 ./WaveSwitcher.spoon/wave-usage.sh              # inspect the usage JSON
 ./install.sh                                     # local install (copies Spoon, wires hooks, reloads)
 ./install.sh --no-claude                         # install the switcher only, skip Claude integration
 ```
+
+`tests/hook_status_test.sh` stubs `wsh` on `PATH` and feeds fixture hook payloads
+to `wave-claude-hook.sh`, asserting the flag color it would set. No Wave or
+Hammerspoon needed; it is the one automated test and should stay green.
 
 Debug the Claude hook: `export WSW_DEBUG=1` (or `touch "$TMPDIR/wsw-debug"`),
 then watch `"$TMPDIR/wsw-hook.log"`. It logs every hook invocation with the tab,
@@ -62,10 +67,37 @@ constants appear in **four** places and must stay in sync:
 | idle / done | `#58c142` | `GREEN`               | `WHEN '#58c142'`   | `--idle`            | (default)              |
 | running     | `#4a9eff` | `BLUE`                | `WHEN '#4a9eff'`   | `--run`             | `running`              |
 | subagents   | `#a970ff` | `PURPLE`              | `WHEN '#a970ff'`   | `--sub`             | `subagents`            |
+| shell       | `#20c4b0` | `TEAL`                | `WHEN '#20c4b0'`   | `--shell`           | `shell`                |
 | needs input | `#e0b956` | `GOLD`                | `WHEN '#e0b956'`   | `--need`            | `needs`                |
 
 Adding or recoloring a status means editing the hook constant, the SQL `CASE` in
-`wave-sessions.sh`, the CSS custom properties, and the JS `STATUS` map.
+`wave-sessions.sh`, the CSS custom properties, and the JS `STATUS` map. Then run
+`./tests/hook_status_test.sh`, which asserts the color the hook picks per event.
+
+### The `shell` state (idle, but a background task is still running)
+
+"Idle" (green) means ready for the next message. The `shell` state (teal)
+distinguishes "the turn ended, but a script/dev-server Claude launched is still
+running, so you're really waiting on *that*." It is detected entirely in the
+hook: Claude's `Stop` (and `SubagentStop`) payload carries a `background_tasks`
+array of in-flight work. `settle_idle()` picks the color when a turn settles:
+subagents live -> purple; else a non-subagent background task present -> teal;
+else green. Subagent tasks (they carry `agent_type`) are excluded because they
+are already the purple state. `bg_shell_active()` does the JSON parse in python
+(only at settle time, not per tool, so the cost is fine).
+
+Verified shape (`Stop` payload): a `run_in_background` Bash appears as
+`{"type":"shell","status":"running","command":...}` with no `agent_type`; real
+subagents appear as `{"type":"subagent",...,"agent_type":"..."}`. So "exclude
+anything with `agent_type`" is the correct filter, and counting any remaining
+task (shell/mcp/monitor/workflow) as "busy" is intentional.
+
+Flip-back: when a background task *finishes*, Claude re-invokes the session to
+process the result (a fresh turn, so `UserPromptSubmit` -> blue, then `Stop`
+re-evaluates `background_tasks` -> green once none remain). So teal clears on its
+own without a dedicated completion hook. The only stale window is a task that
+finishes while you never return to the session; it clears on your next
+interaction.
 
 ### Non-obvious constraints (do not "simplify" these)
 
@@ -112,3 +144,17 @@ two lists must agree.
   block** (env vars `WAVETERM_TABID`, `WAVETERM_WORKSPACEID`, `WAVETERM_BLOCKID`).
   Code running in Hammerspoon's context does not have these.
 - Bump `obj.version` in `init.lua` for releases.
+
+## Known-blocked ideas
+
+- **"Draft" status (user has typed an unsent prompt).** Not buildable with
+  current mechanisms, do not re-investigate from scratch. Claude Code exposes no
+  pre-submit/draft/keystroke hook and no way to read the input buffer (only
+  `UserPromptSubmit`, which fires *on* submit). Reading it from the terminal is
+  also blocked: `wsh termscrollback` returns `no route for "feblock:..."` from
+  the hook/tool-shell context (it needs the front-end block, unreachable there),
+  Hammerspoon has no `wsh`/JWT access at all, and Wave renders the terminal to a
+  canvas (xterm.js), so there is no accessible text/attributes to scrape. The
+  distinguishing signal *would* be color (Claude draws the ghost autosuggestion
+  dim/see-through vs. normal typed text), so this becomes feasible only if Claude
+  Code adds a draft hook, or Wave adds a screen-read-with-attributes API.

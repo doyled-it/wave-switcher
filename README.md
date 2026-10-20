@@ -14,8 +14,10 @@ Spotlight, Raycast, and `agent-view`.
 - **Pin** — `Tab` pins/unpins the selected session; pinned ones float to a **PINNED** group at the top (persists per tab), so the sessions you're bouncing between stay one keypress away.
 - **Jump** — `Enter`. **Dismiss** — `Esc` or click outside.
 - **Usage** — the footer shows your Claude subscription usage (5-hour **session** % and 7-day **week** %), colored as it climbs, so you can see how close you are to your limits without leaving the picker.
-- **Live status** — each tab shows `running` / `needs input` / `idle` from its
-  Wave flag color (see [Live status](#live-status-optional)).
+- **Live status** — each tab shows `running` / `subagents` / `shell` /
+  `needs input` / `idle` from its Wave flag color. `shell` means the session
+  finished its turn but a background task it launched is still running, so it's
+  not actually free (see [Live status](#live-status-optional)).
 
 ## Requirements
 
@@ -85,6 +87,7 @@ by one hook script, `wave-claude-hook.sh`, added to `~/.claude/settings.json`
 | session start / done | `#58c142` | 🟢 idle |
 | working (prompt submitted / tool finished) | `#4a9eff` | 🔵 running |
 | subagents running (`Agent`/`Task` tool, e.g. subagent-driven dev) | `#a970ff` | 🟣 subagents |
+| idle, but a background task it launched is still running | `#20c4b0` | teal "shell" |
 | needs input (permission / question) | `#e0b956` | 🟡 needs input |
 
 **Clickable notifications** — when a session needs you, a notification names the
