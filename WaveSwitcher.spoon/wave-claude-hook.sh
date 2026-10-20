@@ -36,6 +36,7 @@ GREEN="#58c142"   # idle / done
 BLUE="#4a9eff"    # running
 PURPLE="#a970ff"  # subagents active
 TEAL="#20c4b0"    # idle, but a background shell task is still running
+COMPACT="#e86f9e" # compacting context
 GOLD="#e0b956"    # needs your input
 
 flag() { wsh setmeta -b tab "tab:flagcolor=$1" >/dev/null 2>&1; }
@@ -100,6 +101,8 @@ case "$event" in
   SubStart)         sub_add "$(field agent_id)"; flag "$PURPLE" ;;    # a subagent started
   SubStop)          sub_del "$(field agent_id)"; settle_idle ;;        # a subagent finished
   Stop)             settle_idle ;;                                     # turn ended
+  PreCompact)       flag "$COMPACT" ;;                                 # compacting context
+  PostCompact)      sub_active && flag "$PURPLE" || flag "$BLUE" ;;    # back to work
   PostTool)         sub_active && flag "$PURPLE" || flag "$BLUE" ;;
   NeedsInput)       flag "$GOLD"; "$here/wave-notify.sh" input    >/dev/null 2>&1 ;;
   Question)         flag "$GOLD"; "$here/wave-notify.sh" question >/dev/null 2>&1 ;;

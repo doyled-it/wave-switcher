@@ -89,6 +89,8 @@ wanted = [
     ("Stop",             "", "Stop"),
     ("SubagentStart",    "", "SubStart"),
     ("SubagentStop",     "", "SubStop"),
+    ("PreCompact",       "", "PreCompact"),
+    ("PostCompact",      "", "PostCompact"),
     ("Notification", "permission_prompt",  "NeedsInput"),
     ("Notification", "elicitation_dialog", "NeedsInput"),
     ("PreToolUse",   "AskUserQuestion",    "Question"),

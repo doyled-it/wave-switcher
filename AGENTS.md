@@ -68,6 +68,7 @@ constants appear in **four** places and must stay in sync:
 | running     | `#4a9eff` | `BLUE`                | `WHEN '#4a9eff'`   | `--run`             | `running`              |
 | subagents   | `#a970ff` | `PURPLE`              | `WHEN '#a970ff'`   | `--sub`             | `subagents`            |
 | shell       | `#20c4b0` | `TEAL`                | `WHEN '#20c4b0'`   | `--shell`           | `shell`                |
+| compacting  | `#e86f9e` | `COMPACT`             | `WHEN '#e86f9e'`   | `--compact`         | `compacting`           |
 | needs input | `#e0b956` | `GOLD`                | `WHEN '#e0b956'`   | `--need`            | `needs`                |
 
 Adding or recoloring a status means editing the hook constant, the SQL `CASE` in
@@ -142,9 +143,10 @@ interaction.
 The installer maps Claude Code events to `wave-claude-hook.sh <arg>` (see the
 `wanted` list in `install.sh`). Notable: `Notification` with matcher
 `permission_prompt`/`elicitation_dialog` -> `NeedsInput`; `PreToolUse` with matcher
-`AskUserQuestion` -> `Question`. The hook's own `case "$event"` arms (`SubStart`,
-`SubStop`, `PostTool`, ...) are these args, not the raw Claude event names, so the
-two lists must agree.
+`AskUserQuestion` -> `Question`; `PreCompact`/`PostCompact` -> the compacting color
+then back to work. The hook's own `case "$event"` arms (`SubStart`, `SubStop`,
+`PostTool`, ...) are these args, not the raw Claude event names, so the two lists
+must agree.
 
 ## Conventions
 

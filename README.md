@@ -16,7 +16,7 @@ Spotlight, Raycast, and `agent-view`.
 - **Jump** — `Enter`. **Dismiss** — `Esc` or click outside.
 - **Usage** — the footer shows your Claude subscription usage (5-hour **session** % and 7-day **week** %), colored as it climbs, so you can see how close you are to your limits without leaving the picker.
 - **Live status** — each tab shows `running` / `subagents` / `shell` /
-  `needs input` / `idle` from its Wave flag color. `shell` means the session
+  `compacting` / `needs input` / `idle` from its Wave flag color. `shell` means the session
   finished its turn but a background task it launched is still running, so it's
   not actually free (see [Live status](#live-status-optional)).
 
@@ -89,6 +89,7 @@ by one hook script, `wave-claude-hook.sh`, added to `~/.claude/settings.json`
 | working (prompt submitted / tool finished) | `#4a9eff` | 🔵 running |
 | subagents running (`Agent`/`Task` tool, e.g. subagent-driven dev) | `#a970ff` | 🟣 subagents |
 | idle, but a background task it launched is still running | `#20c4b0` | teal "shell" |
+| compacting context (`PreCompact`) | `#e86f9e` | rose "compacting" |
 | needs input (permission / question) | `#e0b956` | 🟡 needs input |
 
 **Clickable notifications** — when a session needs you, a notification names the

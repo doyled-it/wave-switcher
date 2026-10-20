@@ -7,7 +7,7 @@ set -u
 here="${0:A:h}"
 HOOK="$here/../WaveSwitcher.spoon/wave-claude-hook.sh"
 
-GREEN="#58c142"; BLUE="#4a9eff"; PURPLE="#a970ff"; GOLD="#e0b956"; TEAL="#20c4b0"
+GREEN="#58c142"; BLUE="#4a9eff"; PURPLE="#a970ff"; GOLD="#e0b956"; TEAL="#20c4b0"; COMPACT="#e86f9e"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -65,6 +65,13 @@ run_case "Stop: subagent markers -> purple (precedence over shell)" Stop tab-f "
 
 # Regression: PostTool with no subagents -> blue (unchanged).
 run_case "PostTool: no subs -> blue" PostTool tab-g "$BLUE" '{}'
+
+# Compaction: PreCompact -> compacting; PostCompact resumes working (blue, or
+# purple if subagents are live).
+run_case "PreCompact -> compacting" PreCompact tab-h "$COMPACT" '{}'
+run_case "PostCompact: no subs -> blue" PostCompact tab-i "$BLUE" '{}'
+mkdir -p "$tmp/wsw-subs-tab-j.d"; : > "$tmp/wsw-subs-tab-j.d/agentX"
+run_case "PostCompact: subagents -> purple" PostCompact tab-j "$PURPLE" '{}'
 
 print -r -- ""
 print -r -- "passed: $pass  failed: $fail"

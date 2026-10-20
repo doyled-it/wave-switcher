@@ -147,9 +147,9 @@ local HTML = [==[
     color-scheme: dark;
     --bg:#181a1e; --text:#f2f3f5; --muted:#9aa1ac; --dim:#dfe2e7;
     --border:rgba(255,255,255,.10); --accent:#4a9eff; --sel:rgba(74,158,255,.16); --flag:#ffb454;
-    --run:#4a9eff; --sub:#a970ff; --shell:#20c4b0; --need:#e0b956; --idle:#58c142; --none:#6b7280;
+    --run:#4a9eff; --sub:#a970ff; --shell:#20c4b0; --compact:#e86f9e; --need:#e0b956; --idle:#58c142; --none:#6b7280;
     --run-bg:rgba(74,158,255,.15); --sub-bg:rgba(169,112,255,.16); --shell-bg:rgba(32,196,176,.16);
-    --need-bg:rgba(224,185,86,.16);
+    --compact-bg:rgba(232,111,158,.16); --need-bg:rgba(224,185,86,.16);
     --idle-bg:rgba(88,193,66,.16); --none-bg:rgba(120,130,140,.14);
     --shadow:0 24px 70px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.4);
   }
@@ -209,6 +209,7 @@ local HTML = [==[
   .st-running{color:var(--run);background:var(--run-bg)} .dot.running{background:var(--run)}
   .st-sub{color:var(--sub);background:var(--sub-bg)} .dot.sub{background:var(--sub)}
   .st-shell{color:var(--shell);background:var(--shell-bg)} .dot.shell{background:var(--shell)}
+  .st-compact{color:var(--compact);background:var(--compact-bg)} .dot.compact{background:var(--compact)}
   .st-needs{color:var(--need);background:var(--need-bg)} .dot.needs{background:var(--need)}
   .st-idle{color:var(--idle);background:var(--idle-bg)} .dot.idle{background:var(--idle)}
   .st-none{color:var(--none);background:var(--none-bg)} .dot.none{background:var(--none)}
@@ -239,6 +240,7 @@ local HTML = [==[
     "running":     {cls:"running", pill:"st-running", label:"running"},
     "subagents":   {cls:"sub",     pill:"st-sub",     label:"subagents"},
     "shell":       {cls:"shell",   pill:"st-shell",   label:"shell"},
+    "compacting":  {cls:"compact", pill:"st-compact", label:"compacting"},
     "needs input": {cls:"needs",   pill:"st-needs",   label:"needs input"},
     "idle":        {cls:"idle",    pill:"st-idle",    label:"idle"},
   };
