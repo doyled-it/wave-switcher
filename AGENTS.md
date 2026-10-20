@@ -153,6 +153,28 @@ palette stands. **Only chrome is themed; the status colors stay fixed** (they ma
 to the Wave flag colors in the contract above). Matching only covers the themes in
 the bundled snapshot; expand `wave-termthemes.json` to add more.
 
+### Session metadata: git branch + activity time
+
+Each row can show the session's **git branch** (with a `⎇` glyph for worktrees)
+and **time in its current state**.
+
+- **cwd**: `wave-sessions.sh` finds each tab's terminal working directory by
+  joining `db_block` on `parentoref = 'tab:'||tabid` and reading `cmd:cwd`.
+- **branch/worktree**: resolved by `wave-gitinfo.sh` (reads newline-separated
+  cwds on stdin, emits `[{cwd,branch,worktree}]` for real repos only). Git is too
+  slow for the open path, so `refreshGit` runs it **async** via `hs.task` and
+  re-renders when results land; they're cached in `gitCache` keyed by cwd so a
+  reopen paints instantly. Worktree = `git-dir != git-common-dir`. Multi-repo
+  parent dirs (not themselves repos) show no branch.
+- **activity**: the hook's `flag()` stamps `waveswitcher:activity` (epoch seconds)
+  on the tab in the *same* `wsh setmeta` call as the flag color, so every status
+  change records a timestamp at no extra cost. `wave-sessions.sh` returns it and
+  the JS `elapsed()` renders a compact "time in current state" (now/s/m/h/d).
+
+Row layout (JS `setData`): `[dot] [flag?] <lead: name · branch chip · note> <right:
+time + status pill>`. The branch chip and note live in a `min-width:0` flex lead so
+the name ellipsizes; time + pill are pinned right. Branch and note are searchable.
+
 ### Hook event mapping
 
 The installer maps Claude Code events to `wave-claude-hook.sh <arg>` (see the

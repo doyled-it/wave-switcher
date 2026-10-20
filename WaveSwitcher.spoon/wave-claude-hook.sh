@@ -39,7 +39,10 @@ TEAL="#20c4b0"    # idle, but a background shell task is still running
 COMPACT="#e86f9e" # compacting context
 GOLD="#e0b956"    # needs your input
 
-flag() { wsh setmeta -b tab "tab:flagcolor=$1" >/dev/null 2>&1; }
+zmodload zsh/datetime 2>/dev/null  # $EPOCHSECONDS, no fork
+# Set the tab's status color and stamp the activity time (epoch seconds) in one
+# call, so the switcher can show how long a session has been in its current state.
+flag() { wsh setmeta -b tab "tab:flagcolor=$1" "waveswitcher:activity=${EPOCHSECONDS:-$(date +%s)}" >/dev/null 2>&1; }
 
 # --- live-subagent set: one marker file per agent_id, in a per-tab dir --------
 SUBDIR="${TMPDIR:-/tmp}/wsw-subs-${WAVETERM_TABID:-unknown}.d"

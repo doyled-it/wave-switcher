@@ -4,11 +4,13 @@
 #
 # Dependencies: sqlite3 only (built into macOS). No jq, no other tools.
 #
-# Output: [{ ws, wsName, color, tab, tabName, status, current }, ...]
-#   ws      = 1-based workspace index (matches the Workspace menu order)
-#   tab     = 1-based tab index within the workspace (matches Cmd+<n>)
-#   status  = running | subagents | shell | compacting | needs input | idle | —
-#   current = 1 if this is the active tab of the active window (else 0)
+# Output: [{ ws, wsName, color, tab, tabName, status, current, tabId, cwd, activity }, ...]
+#   ws       = 1-based workspace index (matches the Workspace menu order)
+#   tab      = 1-based tab index within the workspace (matches Cmd+<n>)
+#   status   = running | subagents | shell | compacting | needs input | idle | —
+#   current  = 1 if this is the active tab of the active window (else 0)
+#   cwd      = the tab's terminal block working directory (for git branch), or null
+#   activity = epoch seconds of the last status change (set by the Claude hook), or null
 
 DB="$HOME/Library/Application Support/waveterm/db/waveterm.db"
 [ -f "$DB" ] || { echo "[]"; exit 0; }
@@ -18,7 +20,7 @@ SELECT COALESCE((
   SELECT json_group_array(json_object(
     'ws', wsidx, 'wsName', wsname, 'color', wscolor,
     'tab', tabpos, 'tabName', tabname, 'status', status, 'current', iscur,
-    'tabId', tabid))
+    'tabId', tabid, 'cwd', cwd, 'activity', activity))
   FROM (
     SELECT
       (SELECT COUNT(*) FROM db_workspace w2 WHERE w2.rowid <= w.rowid) AS wsidx,
@@ -27,6 +29,10 @@ SELECT COALESCE((
       je.key + 1 AS tabpos,
       je.value AS tabid,
       COALESCE(json_extract(t.data,'\$.name'),'tab') AS tabname,
+      (SELECT json_extract(b.data,'\$.meta.\"cmd:cwd\"') FROM db_block b
+        WHERE json_extract(b.data,'\$.parentoref') = 'tab:' || je.value
+          AND json_extract(b.data,'\$.meta.\"cmd:cwd\"') IS NOT NULL LIMIT 1) AS cwd,
+      CAST(json_extract(t.data,'\$.meta.\"waveswitcher:activity\"') AS INTEGER) AS activity,
       CASE lower(COALESCE(json_extract(t.data,'\$.meta.\"tab:flagcolor\"'),''))
         WHEN '#4a9eff' THEN 'running'
         WHEN '#a970ff' THEN 'subagents'

@@ -36,6 +36,7 @@ local WAVE_BUNDLE = "dev.commandline.waveterm"
 local scriptDir = debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "./"
 local LIST_SCRIPT = scriptDir .. "wave-sessions.sh"
 local USAGE_SCRIPT = scriptDir .. "wave-usage.sh"
+local GITINFO_SCRIPT = scriptDir .. "wave-gitinfo.sh"
 local THEMES_FILE = scriptDir .. "wave-termthemes.json"
 local WAVE_SETTINGS = os.getenv("HOME") .. "/.config/waveterm/settings.json"
 
@@ -130,7 +131,7 @@ local function themeCss()
 end
 
 -- Layout metrics (points)
-local CARD_W   = 620
+local CARD_W   = 720
 local PAD      = 28
 local HEADER_H = 58
 local FOOTER_H = 42
@@ -143,6 +144,11 @@ local TOP_FRAC = 0.15
 --------------------------------------------------------------------------------
 -- Data
 --------------------------------------------------------------------------------
+-- Git branch/worktree per cwd, filled asynchronously (git is too slow to run on
+-- the open path). Keyed by cwd -> { branch, worktree }. Seeds instant repaints
+-- on reopen; refreshed in the background each open.
+local gitCache = {}
+
 local function loadEntries()
   local out, ok = hs.execute("'" .. LIST_SCRIPT .. "'", true) -- login shell (PATH)
   if not ok or not out or out == "" then return {} end
@@ -153,6 +159,7 @@ local function loadEntries()
   local entries = {}
   for _, e in ipairs(data) do
     local note = e.tabId ~= nil and followups[e.tabId] or nil
+    local git = e.cwd and gitCache[e.cwd] or nil
     entries[#entries + 1] = {
       ws = e.ws, tab = e.tab,
       wsName = e.wsName or "?",
@@ -161,6 +168,10 @@ local function loadEntries()
       color = e.color or "#888888",
       current = e.current == 1,
       tabId = e.tabId,
+      cwd = e.cwd,
+      activity = e.activity, -- epoch seconds, or nil
+      branch = git and git.branch or nil,
+      worktree = git and git.worktree or false,
       pinned = e.tabId ~= nil and pins[e.tabId] == true,
       flagged = note ~= nil,
       note = note,
@@ -201,6 +212,8 @@ end
 local HTML = [==[
 <!doctype html>
 <html><head><meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap">
 <style>
   :root{
     color-scheme: dark;
@@ -211,6 +224,7 @@ local HTML = [==[
     --compact-bg:rgba(232,111,158,.16); --need-bg:rgba(224,185,86,.16);
     --idle-bg:rgba(88,193,66,.16); --none-bg:rgba(120,130,140,.14);
     --shadow:0 24px 70px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.4);
+    --fun-mono:"Space Mono",ui-monospace,"SF Mono",Menlo,monospace;
     /*__THEME__*/
   }
   *{box-sizing:border-box;margin:0;padding:0}
@@ -241,17 +255,30 @@ local HTML = [==[
   .group .pinicon{font-size:11px;line-height:1;}
   .name .sep{color:var(--muted);margin:0 2px;}
   .name .ws{font-weight:600;}
-  .name .note{color:var(--muted);font-size:12.5px;margin-left:8px;opacity:.9;font-style:italic;}
   .flag{color:var(--flag);font-size:13px;line-height:1;flex:none;}
   .noteprompt{color:var(--flag);font-weight:600;}
-  .row{display:flex;align-items:center;gap:11px;height:42px;padding:0 12px 0 24px;
+  .row{display:flex;align-items:center;gap:10px;height:42px;padding:0 12px 0 20px;
     border-radius:10px;position:relative;}
   .row .bar{position:absolute;left:6px;top:50%;transform:translateY(-50%);width:3px;height:0;
     border-radius:2px;background:var(--accent);transition:height .12s ease;}
   .row.sel{background:var(--sel);}
   .row.sel .bar{height:56%;}
   .dot{width:10px;height:10px;border-radius:50%;flex:none;}
-  .name{flex:1;min-width:0;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .lead{flex:1;min-width:0;display:flex;align-items:center;gap:7px;overflow:hidden;}
+  .name{min-width:0;flex:0 1 auto;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .note{min-width:0;flex:0 1 auto;color:var(--muted);font-size:12.5px;opacity:.9;font-style:italic;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .chip{flex:none;display:inline-flex;align-items:center;gap:5px;max-width:230px;
+    font-family:var(--fun-mono);font-size:11.5px;font-weight:700;letter-spacing:-.2px;color:var(--dim);
+    background:rgba(128,128,128,.14);border:1px solid var(--border);border-radius:6px;
+    padding:1px 8px 1px 6px;white-space:nowrap;}
+  .chip .gi{width:12px;height:12px;flex:none;color:var(--accent);opacity:.95}
+  .chip .bn{min-width:0;overflow:hidden;text-overflow:ellipsis}
+  .chip.wt{color:var(--shell)}
+  .chip.wt .gi{color:var(--shell)}
+  .rightmeta{flex:none;display:flex;align-items:center;gap:9px;}
+  .time{flex:none;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:11px;color:var(--muted);
+    opacity:.7;font-variant-numeric:tabular-nums;}
   .pill{flex:none;font-size:10.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
     padding:3px 9px;border-radius:999px;}
   .empty{padding:26px 18px;text-align:center;color:var(--muted);font-size:13px;}
@@ -307,6 +334,16 @@ local HTML = [==[
   function statusOf(s){ return STATUS[s] || {cls:"none", pill:"st-none", label:s||"—"}; }
   function esc(s){ return String(s).replace(/[&<>"]/g, function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  // Compact "time in current state" from an epoch-seconds activity stamp.
+  function elapsed(sec){
+    var s = Math.floor(Date.now()/1000) - sec;
+    if(s < 10) return 'now';
+    if(s < 60) return s+'s';
+    if(s < 3600) return Math.floor(s/60)+'m';
+    if(s < 86400) return Math.floor(s/3600)+'h';
+    return Math.floor(s/86400)+'d';
+  }
+  var GITICON = '<svg class="gi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>';
 
   // Called from Hammerspoon on every keystroke. rows: filtered list; sel: 0-based.
   // noteMode/noteText drive the follow-up note-entry input line.
@@ -339,24 +376,30 @@ local HTML = [==[
               + esc(e.wsName)+'</div>';
       }
       var st = statusOf(e.status);
-      // Pinned rows aren't under a project header, so show the workspace color
-      // as a chip and tint the project name to separate projects at a glance.
-      var label = e.pinned
+      // Pinned rows aren't under a project header, so tint the project name to
+      // separate projects at a glance (plus a workspace-color chip, below).
+      var nameHtml = e.pinned
         ? '<span class="ws" style="color:'+esc(e.color)+'">'+esc(e.wsName)+'</span>'
           + ' <span class="sep">›</span> '+esc(e.tabName)
         : esc(e.tabName);
-      // Follow-up: a flagged row shows an amber flag glyph, and its note (if any)
-      // dim after the tab name. The row stays in its normal workspace group.
-      if(e.flagged && e.note){ label += '<span class="note">'+esc(e.note)+'</span>'; }
       var flagicon = e.flagged ? '<span class="flag">&#9873;</span>' : '';
       var wschip = e.pinned
         ? '<span class="wsdot" style="background:'+esc(e.color)+'"></span>' : '';
+      // git branch chip (filled in async); teal + worktree label marks a worktree.
+      var chip = e.branch
+        ? '<span class="chip'+(e.worktree?' wt':'')+'" title="'+(e.worktree?'worktree: ':'branch: ')+esc(e.branch)+'">'
+          + GITICON + '<span class="bn">'+esc(e.branch)+'</span></span>'
+        : '';
+      // follow-up note, dim
+      var note = (e.flagged && e.note) ? '<span class="note">'+esc(e.note)+'</span>' : '';
+      // time in current state (from the activity stamp)
+      var time = e.activity ? '<span class="time">'+elapsed(e.activity)+'</span>' : '';
       html += '<div class="row'+(ri===sel?' sel':'')+'" data-r="'+ri+'"><span class="bar"></span>'
             +   '<span class="dot '+st.cls+'"></span>'
-            +   wschip
-            +   flagicon
-            +   '<span class="name">'+label+'</span>'
-            +   '<span class="pill '+st.pill+'">'+esc(st.label)+'</span></div>';
+            +   wschip + flagicon
+            +   '<span class="lead"><span class="name">'+nameHtml+'</span>'+chip+note+'</span>'
+            +   '<span class="rightmeta">'+time+'<span class="pill '+st.pill+'">'+esc(st.label)+'</span></span>'
+            +   '</div>';
       ri++;
     }
     listEl.innerHTML = html;
@@ -428,7 +471,8 @@ local function rowsJson(list)
   for _, e in ipairs(list) do
     rows[#rows + 1] = { ws = e.ws, wsName = e.wsName, tabName = e.tabName,
                         status = e.status, color = e.color, pinned = e.pinned,
-                        flagged = e.flagged, note = e.note }
+                        flagged = e.flagged, note = e.note,
+                        branch = e.branch, worktree = e.worktree, activity = e.activity }
   end
   return hs.json.encode(rows)
 end
@@ -439,7 +483,7 @@ local function refilter()
   -- Lua selection index matches the display order (pinned shown first).
   local pinned, rest = {}, {}
   for _, e in ipairs(P.entries) do
-    if q == "" or (e.wsName .. " " .. e.tabName .. " " .. e.status .. " " .. (e.note or "")):lower():find(q, 1, true) then
+    if q == "" or (e.wsName .. " " .. e.tabName .. " " .. e.status .. " " .. (e.note or "") .. " " .. (e.branch or "")):lower():find(q, 1, true) then
       if e.pinned then pinned[#pinned + 1] = e else rest[#rest + 1] = e end
     end
   end
@@ -481,6 +525,32 @@ local function refreshUsage()
       if ok and type(u) == "table" then lastUsage = u; pushUsage() end
     end
   end, { "-lc", USAGE_SCRIPT }):start()
+end
+
+-- Async: resolve the git branch/worktree for each tab's cwd and fill it in. Runs
+-- off the open path (git is slow); results cache in gitCache and re-render when
+-- they land. Entries in P.filtered share table identity with P.entries, so
+-- mutating the branch here updates both.
+local function refreshGit()
+  local seen, cwds = {}, {}
+  for _, e in ipairs(P.entries) do
+    if e.cwd and not seen[e.cwd] then seen[e.cwd] = true; cwds[#cwds + 1] = e.cwd end
+  end
+  if #cwds == 0 then return end
+  local task = hs.task.new(GITINFO_SCRIPT, function(_, out)
+    if not out or out == "" then return end
+    local ok, arr = pcall(hs.json.decode, out)
+    if not ok or type(arr) ~= "table" then return end
+    for _, g in ipairs(arr) do
+      if g.cwd then gitCache[g.cwd] = { branch = g.branch, worktree = g.worktree == true } end
+    end
+    for _, e in ipairs(P.entries) do
+      local gi = e.cwd and gitCache[e.cwd] or nil
+      if gi then e.branch = gi.branch; e.worktree = gi.worktree end
+    end
+    if webview then renderNow() end
+  end)
+  if task then task:setInput(table.concat(cwds, "\n") .. "\n"); task:start() end
 end
 
 local function moveSel(d)
@@ -648,6 +718,7 @@ open = function()
   renderTimer:start()
 
   refreshUsage() -- async; updates the footer usage line when it returns
+  refreshGit()   -- async; fills in git branch/worktree per row when it returns
 
   if hotkey then hotkey:disable() end -- key tap owns the hotkey while open
 

@@ -19,6 +19,10 @@ Spotlight, Raycast, and `agent-view`.
   `compacting` / `needs input` / `idle` from its Wave flag color. `shell` means the session
   finished its turn but a background task it launched is still running, so it's
   not actually free (see [Live status](#live-status-optional)).
+- **Context on each row** — the session's **git branch** (with a `⎇` glyph for
+  worktrees) and **how long it's been in its current state** (e.g. `idle 7m`), so
+  you can tell at a glance which stream is which and what's been sitting. Branch
+  is resolved in the background so the palette still opens instantly.
 
 ## Requirements
 
