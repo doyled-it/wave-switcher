@@ -36,6 +36,8 @@ local WAVE_BUNDLE = "dev.commandline.waveterm"
 local scriptDir = debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "./"
 local LIST_SCRIPT = scriptDir .. "wave-sessions.sh"
 local USAGE_SCRIPT = scriptDir .. "wave-usage.sh"
+local THEMES_FILE = scriptDir .. "wave-termthemes.json"
+local WAVE_SETTINGS = os.getenv("HOME") .. "/.config/waveterm/settings.json"
 
 -- Query one scalar from Wave's SQLite state DB (read-only). Callers only pass
 -- UUIDs into the query, so no escaping is needed.
@@ -68,6 +70,63 @@ local function sqlite1(query)
   if not out then return nil end
   out = out:gsub("%s+$", "")
   return out ~= "" and out or nil
+end
+
+--------------------------------------------------------------------------------
+-- Theme matching: adopt the user's Wave terminal theme for the popup chrome.
+-- Only applies when the user has explicitly set `term:theme` in Wave's settings;
+-- otherwise we keep the hand-tuned default palette. Status colors stay fixed
+-- (they map to the Wave flag colors). Palette derivation mirrors wavecrest.
+--------------------------------------------------------------------------------
+local function readFileText(path)
+  local f = io.open(path, "r"); if not f then return nil end
+  local s = f:read("*a"); f:close(); return s
+end
+local function hexRgb(h)
+  if type(h) ~= "string" then return nil end
+  local r, g, b = h:match("^#?(%x%x)(%x%x)(%x%x)$")
+  if not r then return nil end
+  return tonumber(r, 16), tonumber(g, 16), tonumber(b, 16)
+end
+local function rgba(h, a)
+  local r, g, b = hexRgb(h)
+  if not r then return nil end
+  return string.format("rgba(%d,%d,%d,%s)", r, g, b, a)
+end
+
+-- Returns a chrome palette table, or nil to keep the defaults.
+local function readWaveTheme()
+  local settings = readFileText(WAVE_SETTINGS)
+  if not settings then return nil end
+  local okS, s = pcall(hs.json.decode, settings)
+  if not okS or type(s) ~= "table" then return nil end
+  local key = s["term:theme"]
+  if type(key) ~= "string" or key == "" then return nil end -- no explicit theme
+  local themesRaw = readFileText(THEMES_FILE)
+  if not themesRaw then return nil end
+  local okT, themes = pcall(hs.json.decode, themesRaw)
+  if not okT or type(themes) ~= "table" then return nil end
+  local t = themes[key]
+  if type(t) ~= "table" then return nil end
+  local bg = t.background
+  local fg = t.foreground or t.cmdtext or t.white
+  if not (bg and fg) then return nil end
+  local accent = t.brightBlue or t.blue or t.cyan or fg
+  local muted  = t.gray or t.brightBlack or t.black or fg
+  return {
+    bg = bg, text = fg, dim = fg, muted = muted, accent = accent,
+    border = rgba(fg, "0.14") or "rgba(255,255,255,.10)",
+    sel    = rgba(accent, "0.18") or "rgba(74,158,255,.16)",
+  }
+end
+
+-- CSS `:root` override string for the active Wave theme ("" keeps the defaults).
+local function themeCss()
+  local p = readWaveTheme()
+  if not p then return "" end
+  return "--bg:" .. p.bg .. ";--text:" .. p.text .. ";--dim:" .. p.dim
+      .. ";--muted:" .. p.muted .. ";--accent:" .. p.accent
+      .. ";--border:" .. p.border .. ";--sel:" .. p.sel .. ";"
 end
 
 -- Layout metrics (points)
@@ -152,6 +211,7 @@ local HTML = [==[
     --compact-bg:rgba(232,111,158,.16); --need-bg:rgba(224,185,86,.16);
     --idle-bg:rgba(88,193,66,.16); --none-bg:rgba(120,130,140,.14);
     --shadow:0 24px 70px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.4);
+    /*__THEME__*/
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%;background:transparent;
@@ -569,6 +629,7 @@ open = function()
   html = html:gsub("/%*__SEL__%*/0", function() return tostring(P.sel - 1) end)
   html = html:gsub("/%*__USAGE__%*/null",
     function() return lastUsage and hs.json.encode(lastUsage) or "null" end)
+  html = html:gsub("/%*__THEME__%*/", function() return themeCss() end)
 
   -- render-only webview: no allowTextEntry, never focused -> Wave stays key
   webview = hs.webview.new(rect, { developerExtrasEnabled = false })

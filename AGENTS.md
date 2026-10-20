@@ -138,6 +138,21 @@ interaction.
   claude-code UA the endpoint 429s. Failures degrade to a blank footer, never an
   error. The token is read locally and sent only to `api.anthropic.com`.
 
+### Theme matching
+
+The popup chrome adopts the user's Wave terminal theme when one is set.
+`readWaveTheme` reads `~/.config/waveterm/settings.json` for `term:theme`; if it's
+a non-empty string, it looks the key up in the bundled `wave-termthemes.json`
+(a snapshot of Wave's term palettes, ported from wavecrest) and derives a chrome
+palette (bg/text/muted/accent, with border/sel as derived rgba). `themeCss`
+turns that into a `:root` override string injected at the `/*__THEME__*/`
+placeholder in the HTML; because it comes after the defaults in the same `:root`,
+it wins the cascade. If `term:theme` is unset, the theme file is missing, or the
+key isn't in the snapshot, `themeCss` returns `""` and the hand-tuned default
+palette stands. **Only chrome is themed; the status colors stay fixed** (they map
+to the Wave flag colors in the contract above). Matching only covers the themes in
+the bundled snapshot; expand `wave-termthemes.json` to add more.
+
 ### Hook event mapping
 
 The installer maps Claude Code events to `wave-claude-hook.sh <arg>` (see the

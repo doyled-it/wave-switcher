@@ -74,6 +74,12 @@ Change the hotkey by editing the `bindHotkeys` line, e.g. `Cmd+K`:
 spoon.WaveSwitcher:bindHotkeys({ open = {{"cmd"}, "k"} })
 ```
 
+**Theme** — the picker matches your Wave terminal theme automatically. If you've
+set a theme in Wave (`term:theme` in `~/.config/waveterm/settings.json`), the
+popup adopts its background, text, and accent colors; otherwise it uses its
+built-in dark palette. Status dot colors stay the same regardless. (Matching
+covers Wave's common built-in themes; others fall back to the default palette.)
+
 ## Claude Code integration
 
 If you run [Claude Code](https://claude.com/claude-code) in Wave, the installer
