@@ -3,13 +3,6 @@
 # User hooks also run outside Wave; those sessions must have no Wave side effects.
 [[ -n "$WAVETERM_TABID" && -n "$WAVETERM_BLOCKID" ]] || exit 0
 here="${0:A:h}"
-# Serialize the ownership check with SessionStart/End and status writes. Codex
-# can deliver an older thread's hooks after a new thread starts in this block.
-# Keep the lock file: unlinking it would let concurrent hooks lock two inodes.
-zmodload zsh/system 2>/dev/null || exit 0
-lockfile="${TMPDIR:-/tmp}/wsw-codex-${WAVETERM_BLOCKID}.lock"
-: >> "$lockfile" 2>/dev/null || exit 0
-zsystem flock -t 2 -f lockfd "$lockfile" 2>/dev/null || exit 0
 normalized="$(python3 -c '
 import json, sys
 try:
@@ -33,7 +26,6 @@ try:
     if not mapped:
         sys.exit(0)
     print(mapped)
-    print(sid)
     # Forward only the fields the shared handler consumes. This also prevents a
     # nested tool argument from masquerading as a top-level session/agent id.
     print(json.dumps({k: d[k] for k in ("session_id", "agent_id", "tool_name", "background_tasks") if k in d}))
@@ -42,12 +34,8 @@ except (ValueError, TypeError, AttributeError):
 ' "${1:-}")" 2>/dev/null
 [[ "$normalized" == *$'\n'* ]] || exit 0
 event="${normalized%%$'\n'*}"
-rest="${normalized#*$'\n'}"
-sid="${rest%%$'\n'*}"
-payload="${rest#*$'\n'}"
-if [[ "$event" != SessionStart ]]; then
-  current_sid="$(wsh getmeta -b this --raw 'codex:resume' 2>/dev/null)" || exit 0
-  [[ "$current_sid" == "$sid" ]] || exit 0
-fi
+payload="${normalized#*$'\n'}"
+# The shared handler locks and checks ownership for both providers, so changing
+# from Codex to Claude participates in the same protocol.
 printf '%s' "$payload" | WSW_AGENT=codex /bin/zsh "$here/wave-claude-hook.sh" "$event"
 exit 0
