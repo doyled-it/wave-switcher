@@ -21,7 +21,9 @@ shell syntax, Lua compilation, and installed Codex config validation. Review
 paths with spaces, malformed settings, existing mixed hook groups, disabled
 integrations, and hooks executing outside Wave. No global trust bypass.
 
-Result: 11 Python tests and 11 existing hook cases pass. Independent review found
-no actionable defects and verified the download install path. Updated Spoon and
-Codex hooks are installed locally; Hammerspoon loaded the Spoon and Codex reports
-`config.load: ok`. Activation still requires the user's `/hooks` trust review.
+Result: 15 Python tests and 11 existing hook cases pass. The download installer
+was verified against a published commit. Independent branch review identified
+delayed-session ownership and per-command CODEX_HOME resume bugs; both have
+regression coverage and fixes. A lock mutation test confirms the concurrent-event
+test detects removal of serialization. Activation still requires the user's
+`/hooks` trust review.
