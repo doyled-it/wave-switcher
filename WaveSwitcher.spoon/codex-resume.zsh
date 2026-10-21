@@ -4,11 +4,16 @@ if [[ -o interactive && -n "$WAVETERM_BLOCKID" && -z "$WAVESWITCHER_CODEX_RESUME
   if [[ -x "$__wsw_codex_wsh" ]] && command -v codex >/dev/null 2>&1; then
     __wsw_codex_sid="$("$__wsw_codex_wsh" getmeta -b this --raw 'codex:resume' 2>/dev/null)"
     if [[ -n "$__wsw_codex_sid" && "$__wsw_codex_sid" != null ]]; then
-      "$__wsw_codex_wsh" setmeta -b this 'codex:resume=' >/dev/null 2>&1
+      __wsw_codex_home="$("$__wsw_codex_wsh" getmeta -b this --raw 'codex:home' 2>/dev/null)"
+      "$__wsw_codex_wsh" setmeta -b this 'codex:resume=' 'codex:home=' >/dev/null 2>&1
       export WAVESWITCHER_CODEX_RESUMED=1
       print -r -- "Resuming Codex session ($__wsw_codex_sid)..."
-      codex resume "$__wsw_codex_sid"
+      if [[ -n "$__wsw_codex_home" && "$__wsw_codex_home" != null ]]; then
+        CODEX_HOME="$__wsw_codex_home" codex resume "$__wsw_codex_sid"
+      else
+        codex resume "$__wsw_codex_sid"
+      fi
     fi
   fi
-  unset __wsw_codex_wsh __wsw_codex_sid
+  unset __wsw_codex_wsh __wsw_codex_sid __wsw_codex_home
 fi

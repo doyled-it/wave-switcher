@@ -106,11 +106,20 @@ case "$event" in
     if [ -n "$sid" ]; then
       # A block can run either CLI. Clear the other provider's stale resume id,
       # including ids written by old Claude hooks copied into Codex settings.
-      [[ "$agent" == codex ]] && other=claude || other=codex
-      wsh setmeta -b this "${agent}:resume=$sid" "${other}:resume=" >/dev/null 2>&1
+      if [[ "$agent" == codex ]]; then
+        codex_home="${CODEX_HOME:-$HOME/.codex}"
+        codex_home="${codex_home:A}"
+        wsh setmeta -b this "codex:resume=$sid" "codex:home=$codex_home" 'claude:resume=' >/dev/null 2>&1
+      else
+        wsh setmeta -b this "claude:resume=$sid" 'codex:resume=' 'codex:home=' >/dev/null 2>&1
+      fi
     fi
     ;;
-  SessionEnd)       wsh setmeta -b this "${agent}:resume=" >/dev/null 2>&1 ;;
+  SessionEnd)       if [[ "$agent" == codex ]]; then
+                      wsh setmeta -b this 'codex:resume=' 'codex:home=' >/dev/null 2>&1
+                    else
+                      wsh setmeta -b this 'claude:resume=' >/dev/null 2>&1
+                    fi ;;
   UserPromptSubmit) sub_active && flag "$PURPLE" || flag "$BLUE" ;;   # keep prior live subagents
   SubStart)         sub_add "$(field agent_id)"; flag "$PURPLE" ;;    # a subagent started
   SubStop)          sub_del "$(field agent_id)"; settle_idle ;;        # a subagent finished

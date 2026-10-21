@@ -214,6 +214,10 @@ to the same states. `SessionStart` with source `compact` resumes working without
 resetting the subagent set. Codex markers use `wsw-codex-subs-<tabid>.d`, separate
 from Claude. Resume metadata is `codex:resume`, never `claude:resume`; starting
 either provider clears the other provider's stale block resume marker.
+The adapter holds a native zsh lock per block around its ownership check and
+status writes. Only a non-compaction SessionStart can replace the owner; all
+other events must match that block's current `codex:resume`. Keep the lock file
+in place (unlinking it could give concurrent hooks different lock inodes).
 
 `install-codex-hooks.py` merges `${CODEX_HOME:-~/.codex}/hooks.json` and migrates
 only the WaveSwitcher commands at the installed path. Preserve unrelated
@@ -221,7 +225,9 @@ handlers even in mixed matcher groups. Malformed settings must fail without
 overwriting the file; changed files get a backup. Quote executable paths for
 homes with spaces. `--no-codex` skips setup independently of `--no-claude`.
 The sourced `codex-resume.zsh` runs `codex resume <id>` in fresh interactive Wave
-shells and consumes its marker before launching.
+shells and consumes its markers before launching. `codex:home` stores the
+effective absolute `CODEX_HOME` at SessionStart; restore it for the resume
+command so a per-command account/session home survives Wave restarting.
 
 Codex 0.163.0 requires users to review/trust hooks through `/hooks`; never
 silently bypass trust or rewrite its trust state. Its documented Stop payload

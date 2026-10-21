@@ -141,9 +141,11 @@ and `config.toml` are left under your control. Skip Codex setup with
 `./install.sh --no-codex`, or skip both integrations with
 `./install.sh --no-claude --no-codex`.
 
-The Codex resume snippet records `codex:resume` on the Wave block and runs
-`codex resume <id>` after an unexpected Wave restart. A clean session end clears
-the marker. Open a new terminal so the `.zshrc` snippet loads.
+The Codex resume snippet records `codex:resume` and the session's `CODEX_HOME` on
+the Wave block and runs `codex resume <id>` with that home after an unexpected
+Wave restart. A clean session end clears the markers. Delayed events from an
+older session cannot overwrite its replacement in the same block. Open a new
+terminal so the `.zshrc` snippet loads.
 
 This integration targets Codex CLI **0.163.0 or later** with lifecycle hooks.
 Codex 0.163.0 does not expose a background-command list in its documented `Stop`
