@@ -22,7 +22,7 @@ obj.__index = obj
 
 -- Metadata
 obj.name = "WaveSwitcher"
-obj.version = "1.1.1"
+obj.version = "1.2.0"
 obj.author = "mdoyle"
 obj.homepage = "https://github.com/doyled-it/wave-switcher"
 obj.license = "MIT - https://opensource.org/licenses/MIT"
@@ -820,22 +820,23 @@ function obj:start()
   return self
 end
 
---- WaveSwitcher:notify(wsId, tabId, kind)
+--- WaveSwitcher:notify(wsId, tabId, kind, agent)
 --- Method
 --- Post a clickable "needs input" notification (via Hammerspoon) that names the
---- workspace and tab; clicking it jumps to that tab. Called from the Claude Code
---- hook. `kind` is "question" for AskUserQuestion, otherwise a permission/input.
+--- workspace and tab; clicking it jumps to that tab. Called from the agent hook.
+--- `agent` is "codex" or (by default) "claude"; kind is question or input.
 ---
 --- Returns:
 ---  * The WaveSwitcher object
-function obj:notify(wsId, tabId, kind)
+function obj:notify(wsId, tabId, kind, agent)
   if not wsId or not tabId then return self end
   local wsName  = sqlite1("SELECT json_extract(data,'$.name') FROM db_workspace WHERE json_extract(data,'$.oid')='" .. wsId .. "'")
   local tabName = sqlite1("SELECT json_extract(data,'$.name') FROM db_tab WHERE json_extract(data,'$.oid')='" .. tabId .. "'")
   local idx = tonumber(sqlite1(
     "SELECT je.key+1 FROM db_workspace w, json_each(json_extract(w.data,'$.tabids')) je " ..
     "WHERE json_extract(w.data,'$.oid')='" .. wsId .. "' AND je.value='" .. tabId .. "'"))
-  local title = (kind == "question") and "Claude has a question" or "Claude needs your input"
+  local label = (agent == "codex") and "Codex" or "Claude"
+  local title = label .. ((kind == "question") and " has a question" or " needs your input")
   local sub = (wsName or "?") .. "  \226\128\186  " .. (tabName or "?") -- "  ›  "
   hs.notify.new(function() switchTo(wsName, idx, false) end,
     { title = title, subTitle = sub, withdrawAfter = 6 }):send() -- ephemeral (auto-dismiss)
