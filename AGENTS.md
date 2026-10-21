@@ -82,16 +82,18 @@ distinguishes "the turn ended, but a script/dev-server Claude launched is still
 running, so you're really waiting on *that*." It is detected entirely in the
 hook: Claude's `Stop` (and `SubagentStop`) payload carries a `background_tasks`
 array of in-flight work. `settle_idle()` picks the color when a turn settles:
-subagents live -> purple; else a non-subagent background task present -> teal;
-else green. Subagent tasks (they carry `agent_type`) are excluded because they
-are already the purple state. `bg_shell_active()` does the JSON parse in python
-(only at settle time, not per tool, so the cost is fine).
+subagents live -> purple; else a background *command* still running -> teal;
+else green. `bg_shell_active()` does the JSON parse in python (only at settle
+time, not per tool, so the cost is fine).
 
 Verified shape (`Stop` payload): a `run_in_background` Bash appears as
-`{"type":"shell","status":"running","command":...}` with no `agent_type`; real
-subagents appear as `{"type":"subagent",...,"agent_type":"..."}`. So "exclude
-anything with `agent_type`" is the correct filter, and counting any remaining
-task (shell/mcp/monitor/workflow) as "busy" is intentional.
+`{"type":"shell","status":"running","command":...}`; real subagents appear as
+`{"type":"subagent",...,"agent_type":"..."}`; and non-command tasks (an
+artifact-update `monitor` armed on publish, a live `mcp` task, a `workflow`)
+carry neither. **Count only tasks with a `command` field** -- that is the signal
+for a real background command. Keying off "command" (not "not agent_type") is
+deliberate: an armed artifact monitor or MCP task must NOT turn an idle session
+teal, since it isn't a shell.
 
 Flip-back: when a background task *finishes*, Claude re-invokes the session to
 process the result (a fresh turn, so `UserPromptSubmit` -> blue, then `Stop`

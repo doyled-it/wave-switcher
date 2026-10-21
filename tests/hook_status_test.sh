@@ -54,6 +54,11 @@ run_case "Stop: no bg key -> green" Stop tab-c "$GREEN" \
 run_case "Stop: subagent-only bg -> green (not teal)" Stop tab-d "$GREEN" \
   '{"background_tasks":[{"id":"2","type":"subagent","status":"running","agent_type":"explore"}]}'
 
+# A monitor task (e.g. an artifact live-update monitor, armed on publish) has no
+# shell command and must NOT count as shell.
+run_case "Stop: monitor-only bg -> green (not teal)" Stop tab-mon "$GREEN" \
+  '{"background_tasks":[{"id":"m","type":"monitor","status":"running","description":"live updates for artifact https://..."}]}'
+
 # Mixed: a subagent AND a real shell task -> teal (the shell task still counts).
 run_case "Stop: shell + subagent bg -> teal" Stop tab-e "$TEAL" \
   '{"background_tasks":[{"type":"subagent","agent_type":"x"},{"type":"shell","command":"sleep 99"}]}'
