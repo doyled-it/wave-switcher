@@ -32,8 +32,30 @@ agent="${WSW_AGENT:-claude}"
 [[ "$agent" == codex ]] || agent=claude
 
 field() {
-  printf '%s' "$payload" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -1
+  printf '%s' "$payload" | python3 -c '
+import json, sys
+try:
+    value = json.load(sys.stdin).get(sys.argv[1])
+    if isinstance(value, str): print(value)
+except (ValueError, TypeError, AttributeError):
+    pass
+' "$1" 2>/dev/null
 }
+
+# Both providers must serialize ownership changes and guarded status writes.
+# Keep the lock file: unlinking it could give concurrent hooks separate inodes.
+if [[ -n "$WAVETERM_TABID" && -n "$WAVETERM_BLOCKID" ]]; then
+  zmodload zsh/system 2>/dev/null || exit 0
+  lockfile="${TMPDIR:-/tmp}/wsw-codex-${WAVETERM_BLOCKID}.lock"
+  : >> "$lockfile" 2>/dev/null || exit 0
+  zsystem flock -t 2 -f lockfd "$lockfile" 2>/dev/null || exit 0
+  sid="$(field session_id)"
+  [[ -n "$sid" ]] || exit 0
+  if [[ "$event" != SessionStart ]]; then
+    current_sid="$(wsh getmeta -b this --raw "${agent}:resume" 2>/dev/null)" || exit 0
+    [[ "$current_sid" == "$sid" ]] || exit 0
+  fi
+fi
 
 GREEN="#58c142"   # idle / done
 BLUE="#4a9eff"    # running

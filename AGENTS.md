@@ -214,10 +214,13 @@ to the same states. `SessionStart` with source `compact` resumes working without
 resetting the subagent set. Codex markers use `wsw-codex-subs-<tabid>.d`, separate
 from Claude. Resume metadata is `codex:resume`, never `claude:resume`; starting
 either provider clears the other provider's stale block resume marker.
-The adapter holds a native zsh lock per block around its ownership check and
-status writes. Only a non-compaction SessionStart can replace the owner; all
-other events must match that block's current `codex:resume`. Keep the lock file
-in place (unlinking it could give concurrent hooks different lock inodes).
+The shared handler holds a native zsh lock per block around ownership checks and
+status writes for both providers. Only SessionStart can replace the owner; other
+events must match that block's current provider resume marker. The Codex adapter
+maps compaction SessionStart to PostCompact, preserving ownership. Keep the lock
+file in place (unlinking it could give concurrent hooks different lock inodes).
+The Codex resume snippet uses the same lock when consuming metadata and releases
+it before launching the CLI so its SessionStart can acquire it.
 
 `install-codex-hooks.py` merges `${CODEX_HOME:-~/.codex}/hooks.json` and migrates
 only the WaveSwitcher commands at the installed path. Preserve unrelated

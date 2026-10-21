@@ -49,12 +49,12 @@ elif sys.argv[1] == 'getmeta':
         self.env.pop("WSW_AGENT", None)
         self.invoke("SessionStart", source="startup")
 
-    def invoke(self, event, **extra):
+    def invoke(self, event, script="wave-codex-hook.sh", **extra):
         payload = dict(session_id="codex-session", hook_event_name=event,
                        cwd="/tmp/demo", model="demo", permission_mode="default",
                        transcript_path=None)
         payload.update(extra)
-        result = subprocess.run(["/bin/zsh", str(SPOON / "wave-codex-hook.sh"), event],
+        result = subprocess.run(["/bin/zsh", str(SPOON / script), event],
                                 input=json.dumps(payload), text=True,
                                 capture_output=True, env=self.env, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -124,6 +124,19 @@ elif sys.argv[1] == 'getmeta':
         self.assertFalse([c for c in calls if c[0] != "getmeta"], calls)
 
     def test_session_ownership_check_and_writes_are_serialized(self):
+        self.assert_serialized_replacement("wave-codex-hook.sh", "codex:resume")
+
+    def test_provider_transition_is_serialized_with_old_codex_events(self):
+        self.assert_serialized_replacement("wave-claude-hook.sh", "claude:resume")
+
+    def test_late_claude_event_cannot_overwrite_codex(self):
+        self.invoke("SessionStart", script="wave-claude-hook.sh", session_id="claude-old")
+        self.invoke("SessionStart", source="startup")
+        calls = self.invoke("PreCompact", script="wave-claude-hook.sh", session_id="claude-old")
+        self.assertFalse([c for c in calls if c[0] != "getmeta"], calls)
+        self.assertEqual(json.loads(self.state.read_text())["tab:flagcolor"], "#58c142")
+
+    def assert_serialized_replacement(self, script, owner_key):
         barrier = Path(self.tmp.name) / "barrier"
         barrier.mkdir()
         env = dict(self.env, WSH_READ_BARRIER=str(barrier))
@@ -140,7 +153,7 @@ elif sys.argv[1] == 'getmeta':
             while not (barrier / "ready").exists() and time.monotonic() < deadline:
                 time.sleep(.01)
             self.assertTrue((barrier / "ready").exists())
-            new = subprocess.Popen(["/bin/zsh", str(SPOON / "wave-codex-hook.sh"), "SessionStart"],
+            new = subprocess.Popen(["/bin/zsh", str(SPOON / script), "SessionStart"],
                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                    text=True, env=self.env)
             processes.append(new)
@@ -156,7 +169,7 @@ elif sys.argv[1] == 'getmeta':
                 _, stderr = process.communicate(timeout=4)
                 self.assertEqual(process.returncode, 0, stderr)
             meta = json.loads(self.state.read_text())
-            self.assertEqual(meta["codex:resume"], "new-session")
+            self.assertEqual(meta[owner_key], "new-session")
             self.assertEqual(meta["tab:flagcolor"], "#58c142")
         finally:
             (barrier / "release").touch()
