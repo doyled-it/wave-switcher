@@ -19,6 +19,8 @@ Spotlight, Raycast, and `agent-view`.
   `compacting` / `needs input` / `idle` from its Wave flag color. `shell` means the session
   finished its turn but a background task it launched is still running, so it's
   not actually free (see [Live status](#live-status-optional)).
+- **Claude Code and Codex CLI** — live status, clickable notifications, and
+  session resume when you run either agent in Wave.
 - **Context on each row** — the session's **git branch** (with a `⎇` glyph for
   worktrees) and **how long it's been in its current state** (e.g. `idle 7m`), so
   you can tell at a glance which stream is which and what's been sitting. Branch
@@ -119,6 +121,37 @@ inside Claude's own tool shells.
 Requires Wave's `wsh` CLI (installed with Wave) on your `PATH`, and `python3`
 (built into macOS) for the settings merge.
 
+## Codex CLI integration
+
+The installer also configures [Codex CLI](https://developers.openai.com/codex/cli)
+when it is installed. Run `./install.sh` again after installing Codex, then
+restart Codex **inside Wave** and open **`/hooks`** to review and trust the new
+WaveSwitcher hooks. Codex skips untrusted hooks until you approve them.
+
+Codex uses the same status colors for idle, running, subagents, compacting, and
+needs input. Approval requests and `request_user_input` questions turn the tab
+gold and send a notification labeled **Codex**. Interrupting a turn updates its
+status too. Pins, follow-up notes, search, git branch chips, and activity time
+work with either agent.
+
+Hooks are merged into `${CODEX_HOME:-~/.codex}/hooks.json`; existing hooks are
+preserved and a backup is saved when that file changes. Old WaveSwitcher Claude
+commands in that Codex hooks file are migrated to the Codex adapter. Hook trust
+and `config.toml` are left under your control. Skip Codex setup with
+`./install.sh --no-codex`, or skip both integrations with
+`./install.sh --no-claude --no-codex`.
+
+The Codex resume snippet records `codex:resume` on the Wave block and runs
+`codex resume <id>` after an unexpected Wave restart. A clean session end clears
+the marker. Open a new terminal so the `.zshrc` snippet loads.
+
+This integration targets Codex CLI **0.163.0 or later** with lifecycle hooks.
+Codex 0.163.0 does not expose a background-command list in its documented `Stop`
+payload, so automatic **shell** status is currently Claude-only. The usage footer
+also remains **Claude subscription usage**; it does not report Codex limits.
+See [Codex hook documentation](https://learn.chatgpt.com/docs/hooks) for events
+and hook trust.
+
 ## Usage indicator
 
 The footer shows your Claude **subscription** usage — the same 5-hour session and
@@ -160,6 +193,9 @@ Then:
 - if you enabled the Claude integration, remove the `wave-claude-hook.sh` entries
   from `~/.claude/settings.json` (a timestamped `.bak` was saved next to it) and
   delete the `# WaveSwitcher resume` block at the end of `~/.zshrc`.
+- if you enabled Codex integration, remove the `wave-codex-hook.sh` entries from
+  `${CODEX_HOME:-~/.codex}/hooks.json` and the `# WaveSwitcher Codex resume` source
+  line from `~/.zshrc`.
 
 ## License
 
