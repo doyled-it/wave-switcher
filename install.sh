@@ -6,9 +6,10 @@
 # Or from a local clone:
 #   ./install.sh
 #
-# Installs the Hammerspoon Spoon and (for Claude Code users) wires up the
+# Installs the Hammerspoon Spoon and (for Claude Code / Codex users) wires up the
 # status-flag + session-resume integration. Flags:
-#   --no-claude   skip the Claude Code integration (just install the switcher)
+#   --no-claude   skip the Claude Code integration
+#   --no-codex    skip the Codex CLI integration
 # Override the download source with WAVESWITCHER_RAW.
 set -e
 
@@ -17,7 +18,14 @@ DEST="$HOME/.hammerspoon/Spoons/WaveSwitcher.spoon"
 INIT="$HOME/.hammerspoon/init.lua"
 ZSHRC="$HOME/.zshrc"
 WITH_CLAUDE=1
-[ "$1" = "--no-claude" ] && WITH_CLAUDE=0
+WITH_CODEX=1
+for arg in "$@"; do
+  case "$arg" in
+    --no-claude) WITH_CLAUDE=0 ;;
+    --no-codex) WITH_CODEX=0 ;;
+    *) echo "Unknown option: $arg" >&2; exit 1 ;;
+  esac
+done
 
 # --- checks ---------------------------------------------------------------
 [ "$(uname)" = "Darwin" ] || { echo "WaveSwitcher requires macOS."; exit 1; }
@@ -48,12 +56,15 @@ mkdir -p "$DEST"
 fetch init.lua            "$DEST/init.lua"
 fetch wave-sessions.sh    "$DEST/wave-sessions.sh"
 fetch wave-claude-hook.sh "$DEST/wave-claude-hook.sh"
+fetch wave-codex-hook.sh  "$DEST/wave-codex-hook.sh"
+fetch install-codex-hooks.py "$DEST/install-codex-hooks.py"
+fetch codex-resume.zsh    "$DEST/codex-resume.zsh"
 fetch wave-notify.sh      "$DEST/wave-notify.sh"
 fetch wave-usage.sh       "$DEST/wave-usage.sh"
 fetch wave-gitinfo.sh     "$DEST/wave-gitinfo.sh"
 fetch wave-termthemes.json "$DEST/wave-termthemes.json"
 fetch resume.zsh          "$DEST/resume.zsh"
-chmod +x "$DEST/wave-sessions.sh" "$DEST/wave-claude-hook.sh" "$DEST/wave-notify.sh" "$DEST/wave-usage.sh" "$DEST/wave-gitinfo.sh"
+chmod +x "$DEST/wave-sessions.sh" "$DEST/wave-claude-hook.sh" "$DEST/wave-codex-hook.sh" "$DEST/wave-notify.sh" "$DEST/wave-usage.sh" "$DEST/wave-gitinfo.sh"
 echo "Installed Spoon -> $DEST"
 
 # --- wire up Hammerspoon init.lua -----------------------------------------
@@ -135,10 +146,36 @@ elif [ "$WITH_CLAUDE" = "1" ]; then
   echo "No ~/.claude found — skipping Claude Code integration."
 fi
 
+# --- Codex CLI integration: status flags + session resume -----------------
+CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
+if [ "$WITH_CODEX" = "1" ] && { [ -d "$CODEX_DIR" ] || command -v codex >/dev/null 2>&1; }; then
+  if command -v python3 >/dev/null 2>&1; then
+    python3 "$DEST/install-codex-hooks.py" "$CODEX_DIR/hooks.json" "$DEST/wave-codex-hook.sh"
+    # Source the installed file instead of appending its contents so updates do
+    # not leave stale copies of the Codex resume logic in .zshrc.
+    if [ -f "$ZSHRC" ] && grep -Fq 'WaveSwitcher Codex resume' "$ZSHRC"; then
+      echo "Codex resume already referenced in $ZSHRC (left as-is)."
+    else
+      python3 - "$ZSHRC" "$DEST/codex-resume.zsh" <<'PY'
+import shlex, sys
+with open(sys.argv[1], "a") as f:
+    f.write("\n# WaveSwitcher Codex resume\nsource " + shlex.quote(sys.argv[2]) + "\n")
+PY
+      echo "Added Codex resume snippet to $ZSHRC"
+    fi
+    echo "Restart Codex in Wave, then open /hooks to review and trust the WaveSwitcher hooks."
+  else
+    echo "python3 not found - skipping Codex integration."
+  fi
+elif [ "$WITH_CODEX" = "1" ]; then
+  echo "No Codex installation found - skipping Codex integration."
+fi
+
 # --- reload Hammerspoon ---------------------------------------------------
 if command -v hs >/dev/null 2>&1; then
-  hs -c 'hs.reload()' >/dev/null 2>&1 || true
-  echo "Reloaded Hammerspoon."
+  # Schedule after the IPC response. Bound the client in case IPC is wedged.
+  perl -e 'alarm 5; exec @ARGV' hs -c 'hs.timer.doAfter(0.2, hs.reload)' >/dev/null 2>&1 || true
+  echo "Requested Hammerspoon reload."
 else
   echo "Reload Hammerspoon from its menu-bar icon -> Reload Config."
 fi
@@ -149,7 +186,7 @@ Done. Final steps:
   1. Grant Hammerspoon Accessibility permission (needed to send keystrokes):
        System Settings -> Privacy & Security -> Accessibility -> enable Hammerspoon
   2. Focus Wave Terminal and press Ctrl+K.
-  3. (If you enabled the Claude integration) open a new terminal tab so the
-     resume snippet loads, and restart your Claude sessions so the status
-     flags/resume markers start recording.
+  3. Open a new terminal tab so resume snippets load. Restart your Claude Code
+     or Codex CLI sessions to start recording statuses and resume markers.
+     For Codex, review and trust the WaveSwitcher entries in /hooks.
 EOF
