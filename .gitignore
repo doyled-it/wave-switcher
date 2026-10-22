@@ -1,3 +1,4 @@
 .DS_Store
 .codegraph/
 .playwright-mcp/
+__pycache__/

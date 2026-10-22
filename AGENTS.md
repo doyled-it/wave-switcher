@@ -9,7 +9,7 @@ across tools.
 WaveSwitcher is a Hammerspoon **Spoon** (a macOS automation plugin) that gives
 [Wave Terminal](https://waveterm.dev) a `Ctrl+K` work-stream switcher: a popup
 palette of tabs grouped by workspace, with live status dots and a Claude usage
-footer. There is no compiler, package manager, or test suite. The deliverable is
+footer. There is no compiler or package manager. The deliverable is
 the `WaveSwitcher.spoon/` directory, installed by copying it into
 `~/.hammerspoon/Spoons/`.
 
@@ -20,6 +20,7 @@ Edit, then reload Hammerspoon to pick up changes:
 ```sh
 hs -c 'hs.reload()'                              # reload the running config
 ./tests/hook_status_test.sh                      # unit-test the hook's status/color decisions
+python3 -m unittest discover -s tests            # Codex adapter, install/migration, and resume
 ./WaveSwitcher.spoon/wave-sessions.sh | python3 -m json.tool   # inspect the listing JSON
 ./WaveSwitcher.spoon/wave-usage.sh              # inspect the usage JSON
 ./install.sh                                     # local install (copies Spoon, wires hooks, reloads)
@@ -27,8 +28,9 @@ hs -c 'hs.reload()'                              # reload the running config
 ```
 
 `tests/hook_status_test.sh` stubs `wsh` on `PATH` and feeds fixture hook payloads
-to `wave-claude-hook.sh`, asserting the flag color it would set. No Wave or
-Hammerspoon needed; it is the one automated test and should stay green.
+to `wave-claude-hook.sh`, asserting the flag color it would set. The Python suite
+exercises the Codex adapter, installer, and resume against temporary files and a
+stub `wsh`. Both suites should stay green.
 
 Debug the Claude hook: `export WSW_DEBUG=1` (or `touch "$TMPDIR/wsw-debug"`),
 then watch `"$TMPDIR/wsw-hook.log"`. It logs every hook invocation with the tab,
@@ -190,12 +192,51 @@ must agree.
 ## Conventions
 
 - **No `jq` or extra dependencies.** The hard requirement is `sqlite3` (built into
-  macOS); `python3` is used only for JSON parsing in the usage/install scripts.
-  Keep it that way.
+  macOS); the scripts also use `python3` and its standard library for JSON and
+  settings merges. Do not add third-party Python packages.
 - Scripts that `wsh` or touch Wave metadata assume they run **inside a Wave
   block** (env vars `WAVETERM_TABID`, `WAVETERM_WORKSPACEID`, `WAVETERM_BLOCKID`).
   Code running in Hammerspoon's context does not have these.
 - Bump `obj.version` in `init.lua` for releases.
+
+### Codex CLI integration
+
+`wave-codex-hook.sh` translates Codex's raw lifecycle event names to the existing
+status handler in `wave-claude-hook.sh`, setting `WSW_AGENT=codex`. It does nothing
+without Wave tab/block environment variables, so global Codex hooks are safe in
+ordinary terminals and the desktop app. The shared handler owns the color
+constants; do not duplicate them in the Codex adapter.
+
+Codex `PermissionRequest` maps to `NeedsInput`; `PreToolUse` detects
+`request_user_input` (including its `functions.` name) as `Question` and otherwise
+returns to running. `PostToolUse`, subagents, compaction, Stop, and Interrupt map
+to the same states. `SessionStart` with source `compact` resumes working without
+resetting the subagent set. Codex markers use `wsw-codex-subs-<tabid>.d`, separate
+from Claude. Resume metadata is `codex:resume`, never `claude:resume`; starting
+either provider clears the other provider's stale block resume marker.
+The shared handler holds a native zsh lock per block around ownership checks and
+status writes for both providers. Only SessionStart can replace the owner; other
+events must match that block's current provider resume marker. The Codex adapter
+maps compaction SessionStart to PostCompact, preserving ownership. Keep the lock
+file in place (unlinking it could give concurrent hooks different lock inodes).
+The Codex resume snippet uses the same lock when consuming metadata and releases
+it before launching the CLI so its SessionStart can acquire it.
+
+`install-codex-hooks.py` merges `${CODEX_HOME:-~/.codex}/hooks.json` and migrates
+only the WaveSwitcher commands at the installed path. Preserve unrelated
+handlers even in mixed matcher groups. Malformed settings must fail without
+overwriting the file; changed files get a backup. Quote executable paths for
+homes with spaces. `--no-codex` skips setup independently of `--no-claude`.
+The sourced `codex-resume.zsh` runs `codex resume <id>` in fresh interactive Wave
+shells and consumes its markers before launching. `codex:home` stores the
+effective absolute `CODEX_HOME` at SessionStart; restore it for the resume
+command so a per-command account/session home survives Wave restarting.
+
+Codex 0.163.0 requires users to review/trust hooks through `/hooks`; never
+silently bypass trust or rewrite its trust state. Its documented Stop payload
+does not expose `background_tasks`, so shell status is not promised for Codex.
+The usage footer remains Claude-only. Notifications accept an optional provider
+argument (`notify(wsId, tabId, kind, agent)`); omitted provider means Claude.
 
 ## Known-blocked ideas
 

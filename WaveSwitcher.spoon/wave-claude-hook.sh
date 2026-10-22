@@ -22,15 +22,40 @@
 # legitimately outlive the turn that launched them. A prune drops stale entries
 # whose SubagentStop was missed (crash), so the tab can't get stuck purple.
 #
-# Depends only on Wave's `wsh`. Reads the hook JSON payload on stdin.
+# Codex uses this same status engine through wave-codex-hook.sh (WSW_AGENT=codex).
+# Reads the hook JSON payload on stdin; needs wsh and python3 for background tasks.
 
 event="$1"
 payload="$(cat 2>/dev/null)"
 here="${0:A:h}"
+agent="${WSW_AGENT:-claude}"
+[[ "$agent" == codex ]] || agent=claude
 
 field() {
-  printf '%s' "$payload" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -1
+  printf '%s' "$payload" | python3 -c '
+import json, sys
+try:
+    value = json.load(sys.stdin).get(sys.argv[1])
+    if isinstance(value, str): print(value)
+except (ValueError, TypeError, AttributeError):
+    pass
+' "$1" 2>/dev/null
 }
+
+# Both providers must serialize ownership changes and guarded status writes.
+# Keep the lock file: unlinking it could give concurrent hooks separate inodes.
+if [[ -n "$WAVETERM_TABID" && -n "$WAVETERM_BLOCKID" ]]; then
+  zmodload zsh/system 2>/dev/null || exit 0
+  lockfile="${TMPDIR:-/tmp}/wsw-codex-${WAVETERM_BLOCKID}.lock"
+  : >> "$lockfile" 2>/dev/null || exit 0
+  zsystem flock -t 2 -f lockfd "$lockfile" 2>/dev/null || exit 0
+  sid="$(field session_id)"
+  [[ -n "$sid" ]] || exit 0
+  if [[ "$event" != SessionStart ]]; then
+    current_sid="$(wsh getmeta -b this --raw "${agent}:resume" 2>/dev/null)" || exit 0
+    [[ "$current_sid" == "$sid" ]] || exit 0
+  fi
+fi
 
 GREEN="#58c142"   # idle / done
 BLUE="#4a9eff"    # running
@@ -46,6 +71,7 @@ flag() { wsh setmeta -b tab "tab:flagcolor=$1" "waveswitcher:activity=${EPOCHSEC
 
 # --- live-subagent set: one marker file per agent_id, in a per-tab dir --------
 SUBDIR="${TMPDIR:-/tmp}/wsw-subs-${WAVETERM_TABID:-unknown}.d"
+[[ "$agent" == codex ]] && SUBDIR="${TMPDIR:-/tmp}/wsw-codex-subs-${WAVETERM_TABID}.d"
 STALE_MIN=120                               # drop markers older than this (missed stop)
 sub_add()   { [ -n "$1" ] && { mkdir -p "$SUBDIR" 2>/dev/null; : > "$SUBDIR/$1" 2>/dev/null; }; }
 sub_del()   { [ -n "$1" ] && rm -f "$SUBDIR/$1" 2>/dev/null; }
@@ -99,9 +125,23 @@ case "$event" in
   SessionStart)
     sub_reset; flag "$GREEN"
     sid="$(field session_id)"
-    [ -n "$sid" ] && wsh setmeta -b this "claude:resume=$sid" >/dev/null 2>&1
+    if [ -n "$sid" ]; then
+      # A block can run either CLI. Clear the other provider's stale resume id,
+      # including ids written by old Claude hooks copied into Codex settings.
+      if [[ "$agent" == codex ]]; then
+        codex_home="${CODEX_HOME:-$HOME/.codex}"
+        codex_home="${codex_home:A}"
+        wsh setmeta -b this "codex:resume=$sid" "codex:home=$codex_home" 'claude:resume=' >/dev/null 2>&1
+      else
+        wsh setmeta -b this "claude:resume=$sid" 'codex:resume=' 'codex:home=' >/dev/null 2>&1
+      fi
+    fi
     ;;
-  SessionEnd)       wsh setmeta -b this "claude:resume=" >/dev/null 2>&1 ;;
+  SessionEnd)       if [[ "$agent" == codex ]]; then
+                      wsh setmeta -b this 'codex:resume=' 'codex:home=' >/dev/null 2>&1
+                    else
+                      wsh setmeta -b this 'claude:resume=' >/dev/null 2>&1
+                    fi ;;
   UserPromptSubmit) sub_active && flag "$PURPLE" || flag "$BLUE" ;;   # keep prior live subagents
   SubStart)         sub_add "$(field agent_id)"; flag "$PURPLE" ;;    # a subagent started
   SubStop)          sub_del "$(field agent_id)"; settle_idle ;;        # a subagent finished
@@ -109,7 +149,7 @@ case "$event" in
   PreCompact)       flag "$COMPACT" ;;                                 # compacting context
   PostCompact)      sub_active && flag "$PURPLE" || flag "$BLUE" ;;    # back to work
   PostTool)         sub_active && flag "$PURPLE" || flag "$BLUE" ;;
-  NeedsInput)       flag "$GOLD"; "$here/wave-notify.sh" input    >/dev/null 2>&1 ;;
-  Question)         flag "$GOLD"; "$here/wave-notify.sh" question >/dev/null 2>&1 ;;
+  NeedsInput)       flag "$GOLD"; "$here/wave-notify.sh" input "$agent"    >/dev/null 2>&1 ;;
+  Question)         flag "$GOLD"; "$here/wave-notify.sh" question "$agent" >/dev/null 2>&1 ;;
 esac
 exit 0
