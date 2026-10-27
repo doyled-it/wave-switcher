@@ -112,11 +112,11 @@ the `hs` CLI isn't available).
 **Resume after a Wave restart** — when Wave restarts, its terminal tabs come back
 as fresh shells (the running `claude` process is gone). The hook records each
 session's id on its tab (in Wave metadata, which survives a restart) and clears it
-on a clean exit. A snippet added to `~/.zshrc` then checks, on a fresh interactive
-shell in a Wave tab, whether that tab had a session — and if so runs
-`claude --resume <id>` to bring it back. It fires only after an unexpected restart,
-consumes the marker so it can't loop, and never runs in bare-terminal tabs or
-inside Claude's own tool shells.
+only when you deliberately log out, so the marker survives a Wave quit. A snippet
+added to `~/.zshrc` then checks, on a fresh interactive shell in a Wave tab,
+whether that tab had a session, and if so runs `claude --resume <id>` to bring it
+back. It consumes the marker so it can't loop, and never runs in bare-terminal
+tabs or inside Claude's own tool shells.
 
 Requires Wave's `wsh` CLI (installed with Wave) on your `PATH`, and `python3`
 (built into macOS) for the settings merge.

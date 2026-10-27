@@ -110,8 +110,8 @@ settle_idle() {
 if [ -n "$WSW_DEBUG" ] || [ -f "${TMPDIR:-/tmp}/wsw-debug" ]; then
   sub_active && act=Y || act=N
   bg_shell_active && bga=Y || bga=N
-  printf '%s tab=%s ev=%-16s tool=%-18s aid=%-18s subs=%s bg=%s\n' \
-    "$(date +%H:%M:%S)" "${WAVETERM_TABID:0:8}" "$event" "$(field tool_name)" "$(field agent_id)" "$act" "$bga" \
+  printf '%s tab=%s ev=%-16s tool=%-18s aid=%-18s subs=%s bg=%s reason=%s\n' \
+    "$(date +%H:%M:%S)" "${WAVETERM_TABID:0:8}" "$event" "$(field tool_name)" "$(field agent_id)" "$act" "$bga" "$(field reason)" \
     >> "${TMPDIR:-/tmp}/wsw-hook.log" 2>/dev/null
   # Log just the background_tasks array (not the prompt text) to learn its shape.
   printf '%s' "$payload" | python3 -c 'import json,sys
@@ -137,9 +137,15 @@ case "$event" in
       fi
     fi
     ;;
-  SessionEnd)       if [[ "$agent" == codex ]]; then
+  SessionEnd)       # A Wave quit / window close can fire SessionEnd, and its reason is
+                    # indistinguishable from a deliberate exit, so clearing the resume
+                    # marker unconditionally wiped it on restart (auto-resume then had
+                    # nothing to resume). Clear only on an explicit logout; preserve it
+                    # otherwise so a restart can auto-resume (it is re-set on the next
+                    # SessionStart). Codex's adapter forwards no reason, so it clears as before.
+                    if [[ "$agent" == codex ]]; then
                       wsh setmeta -b this 'codex:resume=' 'codex:home=' >/dev/null 2>&1
-                    else
+                    elif [[ "$(field reason)" == logout ]]; then
                       wsh setmeta -b this 'claude:resume=' >/dev/null 2>&1
                     fi ;;
   UserPromptSubmit) sub_active && flag "$PURPLE" || flag "$BLUE" ;;   # keep prior live subagents

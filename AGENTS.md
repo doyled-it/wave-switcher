@@ -141,6 +141,15 @@ interaction.
   claude-code/...` and `anthropic-beta` headers are **required**: without the
   claude-code UA the endpoint 429s. Failures degrade to a blank footer, never an
   error. The token is read locally and sent only to `api.anthropic.com`.
+- **Restart-resume clears the marker only on `logout`.** A Wave quit / window
+  close can fire `SessionEnd` (undocumented), and its `reason` is indistinguishable
+  from a deliberate exit (`prompt_input_exit` covers both an idle window-close and
+  a typed exit). Clearing `claude:resume` on every `SessionEnd` wiped the marker on
+  restart, so auto-resume had nothing to resume. The `SessionEnd` arm now clears
+  only on `reason == logout` and preserves the marker otherwise; it is re-set on the
+  next `SessionStart`, so it self-heals. Tradeoff: a session you typed-exit from
+  also resumes on the next restart, which matches "reload my sessions." The Codex
+  adapter forwards no `reason`, so Codex's `SessionEnd` clears as before.
 
 ### Theme matching
 

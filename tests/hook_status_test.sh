@@ -78,6 +78,31 @@ run_case "PostCompact: no subs -> blue" PostCompact tab-i "$BLUE" '{}'
 mkdir -p "$tmp/wsw-subs-tab-j.d"; : > "$tmp/wsw-subs-tab-j.d/agentX"
 run_case "PostCompact: subagents -> purple" PostCompact tab-j "$PURPLE" '{}'
 
+# SessionEnd (Claude): a Wave quit / window close can fire SessionEnd with a
+# reason indistinguishable from a deliberate exit, so clearing the resume marker
+# unconditionally broke auto-resume after a restart. Clear ONLY on logout;
+# preserve the marker for every other reason so a restart can auto-resume.
+# run_end <name> <reason> <cleared|kept>
+run_end() {
+  local name="$1" reason="$2" want="$3"
+  local log="$tmp/wsh.log"; : > "$log"
+  printf '{"session_id":"s","reason":"%s"}' "$reason" | \
+    env -i HOME="$HOME" PATH="$tmp/bin:/usr/bin:/bin" TMPDIR="$tmp" \
+        WAVETERM_TABID="tab-end" WSH_LOG="$log" \
+        /bin/zsh "$HOOK" SessionEnd >/dev/null 2>&1
+  local got=kept
+  grep -q 'claude:resume=' "$log" && got=cleared
+  if [ "$got" = "$want" ]; then
+    print -r -- "ok   - $name ($got)"; pass=$((pass+1))
+  else
+    print -r -- "FAIL - $name: want $want got $got"; fail=$((fail+1))
+  fi
+}
+run_end "SessionEnd logout -> clears marker"            logout            cleared
+run_end "SessionEnd prompt_input_exit -> keeps marker"  prompt_input_exit kept
+run_end "SessionEnd other -> keeps marker"              other             kept
+run_end "SessionEnd no reason -> keeps marker"          ""                kept
+
 print -r -- ""
 print -r -- "passed: $pass  failed: $fail"
 [ "$fail" -eq 0 ]
