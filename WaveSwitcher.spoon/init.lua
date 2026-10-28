@@ -895,6 +895,10 @@ local OVERLAY_W, OVERLAY_H = 360, 560
 O = { webview = nil, enabled = true, view = "workspace", frame = nil, dragTap = nil,
             entries = {}, pollTimer = nil, gitTimer = nil, usageTimer = nil }
 local toggleHotkey = nil
+-- Forward declarations: any overlay local referenced above its definition MUST be
+-- declared here and defined by assignment (NAME = function), never `local function`
+-- (a late `local function` leaves earlier closures bound to a nil global).
+local overlayRender
 
 local function defaultOverlayFrame()
   local scr = hs.screen.mainScreen():frame()
@@ -1054,7 +1058,7 @@ end
 
 -- Order by the current view and push rows to the page. Called from timer/task
 -- callbacks only (never from an eventtap).
-local function overlayRender()
+overlayRender = function()
   if not O.webview then return end
   local list = (O.view == "triage") and orderTriage(O.entries) or orderWorkspace(O.entries)
   local js = "window.setData(" .. rowsJson(list) .. "," .. jsStr(O.view) .. ")"
