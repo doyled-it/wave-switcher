@@ -85,6 +85,27 @@ obj._test.pinSet = pinSet
 obj._test.flagSet = flagSet
 obj._test.flagClear = flagClear
 
+-- In-memory list updaters (pure): mutate the entry whose tabId matches; a
+-- missing tabId is a no-op.
+local function applyPinList(list, tabId, on)
+  for _, ent in ipairs(list or {}) do
+    if ent.tabId == tabId then ent.pinned = on end
+  end
+end
+local function applyFlagList(list, tabId, note)
+  for _, ent in ipairs(list or {}) do
+    if ent.tabId == tabId then ent.flagged = true; ent.note = note end
+  end
+end
+local function clearFlagList(list, tabId)
+  for _, ent in ipairs(list or {}) do
+    if ent.tabId == tabId then ent.flagged = false; ent.note = nil end
+  end
+end
+obj._test.applyPinList = applyPinList
+obj._test.applyFlagList = applyFlagList
+obj._test.clearFlagList = clearFlagList
+
 -- Pure view-ordering helpers (no IO). Stable: ties keep input order.
 local STATUS_RANK = {
   ["needs input"] = 1, running = 2, subagents = 3,
@@ -538,6 +559,25 @@ local hotkey, watcher
 local lastUsage = nil -- cached {session, week, sessionResets, weekResets}
 local P = { entries = {}, filtered = {}, query = "", sel = 1, dirty = false }
 local close, selectCurrent, open, togglePin, toggleFollowup -- forward decls
+local O -- overlay state; assigned in the overlay section below
+
+-- IO wrappers shared by the popup and the overlay: persist to the state file,
+-- then update every loaded in-memory list so both UIs stay in sync.
+local function applyPin(tabId, on)
+  writePins(pinSet(readPins(), tabId, on))
+  applyPinList(P.entries, tabId, on)
+  if O then applyPinList(O.entries, tabId, on) end
+end
+local function applyFlag(tabId, note)
+  writeFollowups(flagSet(readFollowups(), tabId, note))
+  applyFlagList(P.entries, tabId, note)
+  if O then applyFlagList(O.entries, tabId, note) end
+end
+local function clearFlag(tabId)
+  writeFollowups(flagClear(readFollowups(), tabId))
+  clearFlagList(P.entries, tabId)
+  if O then clearFlagList(O.entries, tabId) end
+end
 
 -- Encode a Lua string as a JS string literal. (hs.json.encode errors on a bare
 -- string — it only accepts tables — so we can't use it for the query.)
@@ -650,12 +690,7 @@ togglePin = function()
   local e = P.filtered[P.sel]
   if not (e and e.tabId) then return end
   local newPinned = not e.pinned
-  local pins = readPins()
-  pins[e.tabId] = newPinned or nil
-  writePins(pins)
-  for _, ent in ipairs(P.entries) do
-    if ent.tabId == e.tabId then ent.pinned = newPinned end
-  end
+  applyPin(e.tabId, newPinned)
   local keep = e.tabId
   refilter()
   for i, ent in ipairs(P.filtered) do
@@ -672,14 +707,11 @@ end
 toggleFollowup = function()
   local e = P.filtered[P.sel]
   if not (e and e.tabId) then return end
-  local fups = readFollowups()
   if e.flagged then
-    fups[e.tabId] = nil; writeFollowups(fups)
-    e.flagged = false; e.note = nil
+    clearFlag(e.tabId)
     renderNow()
   else
-    fups[e.tabId] = ""; writeFollowups(fups)
-    e.flagged = true; e.note = ""
+    applyFlag(e.tabId, "")
     P.noteMode = true; P.noteTabId = e.tabId; P.noteText = ""
     renderNow()
   end
@@ -834,11 +866,7 @@ selectCurrent = function()
   local e = P.filtered[P.sel]
   local sameWs = e and P.activeWs ~= nil and e.ws == P.activeWs
   -- Jumping to a flagged session clears its follow-up: you've returned to it.
-  if e and e.flagged and e.tabId then
-    local fups = readFollowups()
-    fups[e.tabId] = nil
-    writeFollowups(fups)
-  end
+  if e and e.flagged and e.tabId then clearFlag(e.tabId) end
   close()
   if e then switchTo(e.wsName, e.tab, sameWs) end
 end
@@ -864,7 +892,7 @@ local OVERLAY_MARGIN = 16
 local OVERLAY_W, OVERLAY_H = 360, 560
 
 -- entries: latest rows; pollTimer/gitTimer/usageTimer run only while visible.
-local O = { webview = nil, enabled = true, view = "workspace", frame = nil, dragTap = nil,
+O = { webview = nil, enabled = true, view = "workspace", frame = nil, dragTap = nil,
             entries = {}, pollTimer = nil, gitTimer = nil, usageTimer = nil }
 local toggleHotkey = nil
 
@@ -896,6 +924,68 @@ local function saveOverlayState()
   })
 end
 
+-- Decode %XX and + in a query value.
+local function urlDecode(v)
+  v = (v or ""):gsub("+", " ")
+  return (v:gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end))
+end
+
+local function overlayDispatch(verb, params)
+  local tabId, set = params.tab, params.set
+  if verb == "view" then
+    if set == "workspace" or set == "triage" then
+      O.view = set
+      saveOverlayState()
+      overlayRender()
+    end
+    return
+  end
+  if not tabId then return end
+  local e
+  for _, ent in ipairs(O.entries) do
+    if ent.tabId == tabId then e = ent; break end
+  end
+  if not e then return end
+  if verb == "jump" then
+    clearFlag(tabId)
+    local app = hs.application.get(WAVE_BUNDLE)
+    if app then app:activate(true) end
+    switchTo(e.wsName, e.tab, sameWs(O.entries, tabId))
+  elseif verb == "pin" then
+    applyPin(tabId, not e.pinned)
+    overlayRender()
+  elseif verb == "flag" then
+    if e.flagged then clearFlag(tabId) else applyFlag(tabId, "") end
+    overlayRender()
+  end
+end
+
+-- Intercepts wsw:// navigations (denied), allows everything else (initial load).
+local function overlayPolicy(action, webview, details)
+  local url
+  for _, a in ipairs({ webview, details }) do
+    if type(a) == "string" then url = url or a
+    elseif type(a) == "table" then
+      local r = a.request
+      url = url or (type(r) == "table" and (r.URL or r.url)) or a.URL or a.url
+      if type(url) == "table" then url = url.absoluteString or url.url end
+    end
+  end
+  if type(url) ~= "string" or url:sub(1, 6) ~= "wsw://" or action ~= "navigationAction" then
+    return true
+  end
+  pcall(function()
+    local rest = url:sub(7)
+    local verb, query = rest:match("^([^?#/]*)%??([^#]*)")
+    local params = {}
+    for k, v in (query or ""):gmatch("([^&=]+)=?([^&]*)") do
+      params[urlDecode(k)] = urlDecode(v)
+    end
+    overlayDispatch(verb, params)
+  end)
+  return false
+end
+
 local function buildOverlayWebview()
   local html = readFileText(scriptDir .. "wave-dashboard.html") or ""
   html = html:gsub("/%*__STATUSVARS__%*/", function() return statusVarsCss() end)
@@ -909,6 +999,7 @@ local function buildOverlayWebview()
   wv:level(hs.canvas.windowLevels.popUpMenu)
   wv:transparent(true)
   wv:shadow(true)
+  wv:policyCallback(overlayPolicy)
   wv:html(html)
   O.webview = wv
 end

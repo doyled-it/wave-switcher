@@ -88,4 +88,16 @@ else
   end
 end
 
+do
+  local L = { {tabId="t1",pinned=false,flagged=false} }
+  T.applyPinList(L, "t1", true);   eq("applyPinList sets", L[1].pinned, true)
+  T.applyPinList(L, "gone", true); eq("applyPinList stale no-op", #L, 1)
+  T.applyFlagList(L, "t1", "n");   eq("applyFlagList flagged", L[1].flagged, true)
+  eq("applyFlagList note", L[1].note, "n")
+  T.applyFlagList(L, "gone", "x"); eq("applyFlagList stale no-op", L[1].note, "n")
+  T.clearFlagList(L, "t1");        eq("clearFlagList flagged", L[1].flagged, false)
+  eq("clearFlagList note", L[1].note, nil)
+  T.clearFlagList(L, "gone");      eq("clearFlagList stale no-op", #L, 1)
+end
+
 if bad == 0 and T then print("ALL PASS") end
