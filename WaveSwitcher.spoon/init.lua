@@ -66,6 +66,24 @@ local function readPins()        return readJsonMap(PIN_FILE) end
 local function writePins(t)      writeJsonMap(PIN_FILE, t) end
 local function readFollowups()   return readJsonMap(FOLLOWUP_FILE) end
 local function writeFollowups(t) writeJsonMap(FOLLOWUP_FILE, t) end
+
+-- Pure state transforms (no IO) shared by the popup and the status overlay.
+local function pinSet(map, tabId, on)
+  if on then map[tabId] = true else map[tabId] = nil end
+  return map
+end
+local function flagSet(map, tabId, note)
+  map[tabId] = note or ""
+  return map
+end
+local function flagClear(map, tabId)
+  map[tabId] = nil
+  return map
+end
+obj._test = obj._test or {}
+obj._test.pinSet = pinSet
+obj._test.flagSet = flagSet
+obj._test.flagClear = flagClear
 local function sqlite1(query)
   local out = hs.execute("/usr/bin/sqlite3 'file:" .. DB_PATH .. "?mode=ro' \"" .. query .. "\"")
   if not out then return nil end
