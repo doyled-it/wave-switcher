@@ -122,6 +122,29 @@ obj._test.statusRank = statusRank
 obj._test.orderWorkspace = orderWorkspace
 obj._test.orderTriage = orderTriage
 obj._test.sameWs = sameWs
+
+-- Single source of truth for status colors. statusVarsCss() renders them as CSS
+-- custom properties for both the popup and the overlay page.
+local STATUS_COLORS = {
+  ["running"] = "#4a9eff", ["subagents"] = "#a970ff", ["shell"] = "#20c4b0",
+  ["compacting"] = "#e86f9e", ["needs input"] = "#e0b956", ["idle"] = "#58c142",
+}
+local function hexRgba(hex, a)
+  local r, g, b = hex:match("^#(%x%x)(%x%x)(%x%x)$")
+  return string.format("rgba(%d,%d,%d,%s)", tonumber(r, 16), tonumber(g, 16), tonumber(b, 16), a)
+end
+local function statusVarsCss()
+  local C = STATUS_COLORS
+  local function pair(name, status, a)
+    return string.format("--%s:%s;--%s-bg:%s;", name, C[status], name, hexRgba(C[status], a))
+  end
+  return pair("run", "running", ".15") .. pair("sub", "subagents", ".16")
+    .. pair("shell", "shell", ".16") .. pair("compact", "compacting", ".16")
+    .. pair("need", "needs input", ".16") .. pair("idle", "idle", ".16")
+    .. "--none:#6b7280;--none-bg:rgba(120,130,140,.14);"
+end
+obj._test.STATUS_COLORS = STATUS_COLORS
+obj._test.statusVarsCss = statusVarsCss
 local function sqlite1(query)
   local out = hs.execute("/usr/bin/sqlite3 'file:" .. DB_PATH .. "?mode=ro' \"" .. query .. "\"")
   if not out then return nil end
@@ -275,10 +298,7 @@ local HTML = [==[
     color-scheme: dark;
     --bg:#181a1e; --text:#f2f3f5; --muted:#9aa1ac; --dim:#dfe2e7;
     --border:rgba(255,255,255,.10); --accent:#4a9eff; --sel:rgba(74,158,255,.16); --flag:#ffb454;
-    --run:#4a9eff; --sub:#a970ff; --shell:#20c4b0; --compact:#e86f9e; --need:#e0b956; --idle:#58c142; --none:#6b7280;
-    --run-bg:rgba(74,158,255,.15); --sub-bg:rgba(169,112,255,.16); --shell-bg:rgba(32,196,176,.16);
-    --compact-bg:rgba(232,111,158,.16); --need-bg:rgba(224,185,86,.16);
-    --idle-bg:rgba(88,193,66,.16); --none-bg:rgba(120,130,140,.14);
+    /*__STATUSVARS__*/
     --shadow:0 24px 70px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.4);
     --fun-mono:"Space Mono",ui-monospace,"SF Mono",Menlo,monospace;
     /*__THEME__*/
@@ -756,6 +776,7 @@ open = function()
   html = html:gsub("/%*__USAGE__%*/null",
     function() return lastUsage and hs.json.encode(lastUsage) or "null" end)
   html = html:gsub("/%*__THEME__%*/", function() return themeCss() end)
+  html = html:gsub("/%*__STATUSVARS__%*/", function() return statusVarsCss() end)
 
   -- render-only webview: no allowTextEntry, never focused -> Wave stays key
   webview = hs.webview.new(rect, { developerExtrasEnabled = false })

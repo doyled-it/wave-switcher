@@ -1,0 +1,205 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+  :root{
+    color-scheme: dark;
+    --bg:#181a1e; --text:#f2f3f5; --muted:#9aa1ac; --dim:#dfe2e7;
+    --border:rgba(255,255,255,.10); --accent:#4a9eff; --flag:#ffb454;
+    --fun-mono:ui-monospace,"SF Mono",Menlo,monospace;
+    /*__STATUSVARS__*/
+    /*__THEME__*/
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:var(--bg);
+    font-family:-apple-system,"SF Pro Text","Helvetica Neue",Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;color:var(--text);}
+  a{color:inherit;text-decoration:none}
+  .wrap{height:100%;display:flex;flex-direction:column;}
+  .head{flex:none;display:flex;align-items:center;gap:12px;height:40px;padding:0 12px;
+    border-bottom:1px solid var(--border);}
+  .title{font-size:12px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);}
+  .toggle{display:inline-flex;border:1px solid var(--border);border-radius:7px;overflow:hidden;}
+  .toggle a{font-size:11px;padding:3px 10px;color:var(--muted);}
+  .toggle a.active{color:var(--text);background:rgba(255,255,255,.10);}
+  .list{flex:1;overflow-y:auto;padding:4px 6px 8px;}
+  .list::-webkit-scrollbar{width:9px}
+  .list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:5px;border:2px solid transparent;background-clip:content-box}
+  .group{display:flex;align-items:center;gap:8px;height:28px;padding:0 10px;
+    font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);}
+  .group .wsdot{width:8px;height:8px;border-radius:2px;flex:none;}
+  .group.pinned{color:var(--accent);}
+  .group .pinicon{font-size:11px;line-height:1;}
+  .name .sep{color:var(--muted);margin:0 2px;}
+  .name .ws{font-weight:600;}
+  .flag{color:var(--flag);font-size:13px;line-height:1;flex:none;}
+  .row{display:flex;align-items:center;gap:8px;height:36px;padding:0 8px 0 10px;border-radius:9px;}
+  .row:hover{background:rgba(255,255,255,.06);}
+  .dot{width:10px;height:10px;border-radius:50%;flex:none;}
+  .lead{flex:1;min-width:0;display:flex;align-items:center;gap:7px;overflow:hidden;height:100%;}
+  .name{min-width:0;flex:0 1 auto;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .note{min-width:0;flex:0 1 auto;color:var(--muted);font-size:12px;opacity:.9;font-style:italic;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .chip{flex:none;display:inline-flex;align-items:center;gap:5px;max-width:200px;
+    font-family:var(--fun-mono);font-size:11px;font-weight:700;letter-spacing:-.2px;color:var(--dim);
+    background:rgba(128,128,128,.14);border:1px solid var(--border);border-radius:6px;
+    padding:1px 8px 1px 6px;white-space:nowrap;}
+  .chip .gi{width:12px;height:12px;flex:none;color:var(--accent);opacity:.95}
+  .chip .bn{min-width:0;overflow:hidden;text-overflow:ellipsis}
+  .chip.wt{color:var(--shell)}
+  .chip.wt .gi{color:var(--shell)}
+  .rightmeta{flex:none;display:flex;align-items:center;gap:8px;}
+  .time{flex:none;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:11px;color:var(--muted);
+    opacity:.7;font-variant-numeric:tabular-nums;}
+  .pill{flex:none;font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
+    padding:2px 8px;border-radius:999px;}
+  .ctl{flex:none;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
+    border-radius:6px;font-size:13px;line-height:1;color:var(--muted);opacity:.45;}
+  .ctl:hover{opacity:1;background:rgba(255,255,255,.10);}
+  .ctl.on{opacity:1;color:var(--accent);}
+  .ctl.flagon{opacity:1;color:var(--flag);}
+  .empty{padding:26px 18px;text-align:center;color:var(--muted);font-size:13px;}
+  .usage{margin-left:auto;display:flex;align-items:center;gap:7px;font-size:11px;
+    color:var(--muted);font-variant-numeric:tabular-nums;}
+  .usage .useg{display:inline-flex;gap:4px;} .usage .useg b{font-weight:600;}
+  .usage .ok{color:var(--muted);} .usage .warn{color:var(--need);} .usage .crit{color:#ff5f56;}
+  .usage .ureset{color:var(--muted);opacity:.7;margin-left:3px;}
+  .usage .udot{opacity:.45;}
+  .st-running{color:var(--run);background:var(--run-bg)} .dot.running{background:var(--run)}
+  .st-sub{color:var(--sub);background:var(--sub-bg)} .dot.sub{background:var(--sub)}
+  .st-shell{color:var(--shell);background:var(--shell-bg)} .dot.shell{background:var(--shell)}
+  .st-compact{color:var(--compact);background:var(--compact-bg)} .dot.compact{background:var(--compact)}
+  .st-needs{color:var(--need);background:var(--need-bg)} .dot.needs{background:var(--need)}
+  .st-idle{color:var(--idle);background:var(--idle-bg)} .dot.idle{background:var(--idle)}
+  .st-none{color:var(--none);background:var(--none-bg)} .dot.none{background:var(--none)}
+</style></head>
+<body>
+  <div class="wrap">
+    <div class="head">
+      <span class="title">Sessions</span>
+      <span class="toggle" id="toggle"></span>
+      <span class="usage" id="usage"></span>
+    </div>
+    <div class="list" id="list"></div>
+  </div>
+<script>
+  var listEl = document.getElementById('list');
+  var toggleEl = document.getElementById('toggle');
+  var STATUS = {
+    "running":     {cls:"running", pill:"st-running", label:"running"},
+    "subagents":   {cls:"sub",     pill:"st-sub",     label:"subagents"},
+    "shell":       {cls:"shell",   pill:"st-shell",   label:"shell"},
+    "compacting":  {cls:"compact", pill:"st-compact", label:"compacting"},
+    "needs input": {cls:"needs",   pill:"st-needs",   label:"needs input"},
+    "idle":        {cls:"idle",    pill:"st-idle",    label:"idle"},
+  };
+  function statusOf(s){ return STATUS[s] || {cls:"none", pill:"st-none", label:s||"\u2014"}; }
+  function esc(s){ return String(s).replace(/[&<>"]/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  // Compact "time in current state" from an epoch-seconds activity stamp.
+  function elapsed(sec){
+    var s = Math.floor(Date.now()/1000) - sec;
+    if(s < 10) return 'now';
+    if(s < 60) return s+'s';
+    if(s < 3600) return Math.floor(s/60)+'m';
+    if(s < 86400) return Math.floor(s/3600)+'h';
+    return Math.floor(s/86400)+'d';
+  }
+  var GITICON = '<svg class="gi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>';
+
+  function renderToggle(view){
+    toggleEl.innerHTML =
+      '<a class="'+(view==='workspace'?'active':'')+'" href="wsw://view?set=workspace">Workspace</a>'
+      + '<a class="'+(view==='triage'?'active':'')+'" href="wsw://view?set=triage">Triage</a>';
+  }
+
+  // rows arrive already ordered by the Lua side; this only draws headers on change.
+  window.setData = function(rows, view){
+    view = (view === 'triage') ? 'triage' : 'workspace';
+    renderToggle(view);
+    if(!rows || rows.length === 0){
+      listEl.innerHTML = '<div class="empty">No sessions</div>';
+      return;
+    }
+    var html = '', curWs = null, curStatus = null, pinnedHeaderDone = false;
+    for(var i=0;i<rows.length;i++){
+      var e = rows[i];
+      var st = statusOf(e.status);
+      if(view === 'triage'){
+        if(e.status !== curStatus){
+          curStatus = e.status;
+          html += '<div class="group"><span class="dot '+st.cls+'"></span>'+esc(st.label)+'</div>';
+        }
+      } else if(e.pinned){
+        if(!pinnedHeaderDone){
+          html += '<div class="group pinned"><span class="pinicon">&#9733;</span>PINNED</div>';
+          pinnedHeaderDone = true; curWs = null;
+        }
+      } else if(e.ws !== curWs){
+        curWs = e.ws;
+        html += '<div class="group"><span class="wsdot" style="background:'+esc(e.color)+'"></span>'
+              + esc(e.wsName)+'</div>';
+      }
+      // Pinned and triage rows are not under a project header, so show project > tab.
+      var showWs = e.pinned || view === 'triage';
+      var nameHtml = showWs
+        ? '<span class="ws" style="color:'+esc(e.color)+'">'+esc(e.wsName)+'</span>'
+          + ' <span class="sep">&rsaquo;</span> '+esc(e.tabName)
+        : esc(e.tabName);
+      var flagicon = e.flagged ? '<span class="flag">&#9873;</span>' : '';
+      var chip = e.branch
+        ? '<span class="chip'+(e.worktree?' wt':'')+'" title="'+(e.worktree?'worktree: ':'branch: ')+esc(e.branch)+'">'
+          + GITICON + '<span class="bn">'+esc(e.branch)+'</span></span>'
+        : '';
+      var note = (e.flagged && e.note) ? '<span class="note">'+esc(e.note)+'</span>' : '';
+      var time = e.activity ? '<span class="time">'+elapsed(e.activity)+'</span>' : '';
+      var tab = encodeURIComponent(e.tabId == null ? '' : e.tabId);
+      html += '<div class="row">'
+            +   '<a class="lead" href="wsw://jump?tab='+tab+'">'
+            +     '<span class="dot '+st.cls+'"></span>'+flagicon
+            +     '<span class="name">'+nameHtml+'</span>'+chip+note+'</a>'
+            +   '<span class="rightmeta">'+time+'<span class="pill '+st.pill+'">'+esc(st.label)+'</span>'
+            +     '<a class="ctl'+(e.pinned?' on':'')+'" href="wsw://pin?tab='+tab+'" title="pin">&#9733;</a>'
+            +     '<a class="ctl'+(e.flagged?' flagon':'')+'" href="wsw://flag?tab='+tab+'" title="flag">&#9873;</a>'
+            +   '</span></div>';
+    }
+    listEl.innerHTML = html;
+  };
+  // Subscription usage line (5h session + 7d week). Same formatting as the popup.
+  window.setUsage = function(u){
+    var el = document.getElementById('usage');
+    if(!el) return;
+    if(!u || !u.session){ el.innerHTML = ''; return; }
+    function fmtReset(iso){
+      if(!iso) return '';
+      var t = new Date(iso).getTime();
+      if(isNaN(t)) return '';
+      var s = Math.max(0, Math.round((t - Date.now())/1000));
+      var d = Math.floor(s/86400), h = Math.floor((s%86400)/3600), m = Math.floor((s%3600)/60);
+      if(d > 0) return d+'d'+h+'h';
+      if(h > 0) return h+'h'+m+'m';
+      if(m > 0) return m+'m';
+      return '<1m';
+    }
+    function clsFor(s){
+      if(s.sev) return s.sev==='critical' ? 'crit' : (s.sev==='warning' ? 'warn' : 'ok');
+      return s.util>=90 ? 'crit' : (s.util>=70 ? 'warn' : 'ok'); // fallback thresholds
+    }
+    function seg(label, s){
+      if(!s || s.util==null) return '';
+      var r = fmtReset(s.resets);
+      return '<span class="useg '+clsFor(s)+'">'+label+' <b>'+Math.round(s.util)+'%</b></span>'
+           + (r ? '<span class="ureset" title="until reset">'+r+'</span>' : '');
+    }
+    var parts = [ seg('5h', u.session), seg('7d', u.week),
+                  seg('opus', u.opus), seg('sonnet', u.sonnet) ];
+    if(u.credits && u.credits.util != null)
+      parts.push('<span class="useg ok">credits <b>'+Math.round(u.credits.util)+'%</b></span>');
+    el.innerHTML = parts.filter(Boolean).join('<span class="udot">&middot;</span>');
+  };
+
+  // First paint from embedded data, so it shows before any JS is injected.
+  var DATA = /*__DATA__*/[];
+  var VIEW = /*__VIEW__*/"workspace";
+  window.setData(DATA, VIEW);
+</script>
+</body></html>

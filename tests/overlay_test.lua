@@ -67,6 +67,25 @@ else
   eq("sameWs true",  T.sameWs(ss, "x"), true)
   eq("sameWs false", T.sameWs(ss, "y"), false)
   eq("sameWs stale", T.sameWs(ss, "gone"), false)
+  -- canonical status colors
+  eq("STATUS_COLORS running", T.STATUS_COLORS["running"], "#4a9eff")
+  eq("STATUS_COLORS subagents", T.STATUS_COLORS["subagents"], "#a970ff")
+  eq("STATUS_COLORS shell", T.STATUS_COLORS["shell"], "#20c4b0")
+  eq("STATUS_COLORS compacting", T.STATUS_COLORS["compacting"], "#e86f9e")
+  eq("STATUS_COLORS needs input", T.STATUS_COLORS["needs input"], "#e0b956")
+  eq("STATUS_COLORS idle", T.STATUS_COLORS["idle"], "#58c142")
+  local css = T.statusVarsCss()
+  for _, d in ipairs({
+    "--run:#4a9eff;", "--run-bg:rgba(74,158,255,.15);",
+    "--sub:#a970ff;", "--sub-bg:rgba(169,112,255,.16);",
+    "--shell:#20c4b0;", "--shell-bg:rgba(32,196,176,.16);",
+    "--compact:#e86f9e;", "--compact-bg:rgba(232,111,158,.16);",
+    "--need:#e0b956;", "--need-bg:rgba(224,185,86,.16);",
+    "--idle:#58c142;", "--idle-bg:rgba(88,193,66,.16);",
+    "--none:#6b7280;", "--none-bg:rgba(120,130,140,.14);",
+  }) do
+    eq("statusVarsCss has " .. d, css:find(d, 1, true) ~= nil, true)
+  end
 end
 
 if bad == 0 and T then print("ALL PASS") end
