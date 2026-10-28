@@ -846,16 +846,144 @@ close = function()
   if hotkey and front and front:bundleID() == WAVE_BUNDLE then hotkey:enable() end
 end
 
--- Enable the hotkey only while Wave Terminal is frontmost.
+--------------------------------------------------------------------------------
+-- Status overlay: a non-activating panel listing every session, shown while Wave
+-- is frontmost. All hs.* calls live inside functions (keeps init.lua loadable
+-- under the offline lua test harness).
+--------------------------------------------------------------------------------
+
+local OVERLAY_STATE_FILE = hs.configdir .. "/waveswitcher-overlay.json"
+local OVERLAY_HEADER_H = 34 -- draggable strip at the top of the panel
+local OVERLAY_MARGIN = 16
+local OVERLAY_W, OVERLAY_H = 360, 560
+
+-- timers is reserved for the poll/git/usage timers added with live data.
+local O = { webview = nil, enabled = true, view = "workspace", frame = nil, dragTap = nil, timers = {} }
+local toggleHotkey = nil
+
+local function defaultOverlayFrame()
+  local scr = hs.screen.mainScreen():frame()
+  return {
+    x = scr.x + scr.w - OVERLAY_W - OVERLAY_MARGIN,
+    y = scr.y + OVERLAY_MARGIN,
+    w = OVERLAY_W, h = OVERLAY_H,
+  }
+end
+
+local function loadOverlayState()
+  local t = readJsonMap(OVERLAY_STATE_FILE)
+  O.enabled = (t.enabled ~= false)
+  O.view = (t.view == "triage") and "triage" or "workspace"
+  if type(t.x) == "number" and type(t.y) == "number"
+     and type(t.w) == "number" and type(t.h) == "number" and t.w > 0 and t.h > 0 then
+    O.frame = { x = t.x, y = t.y, w = t.w, h = t.h }
+  else
+    O.frame = defaultOverlayFrame()
+  end
+end
+
+local function saveOverlayState()
+  local f = O.frame or {}
+  writeJsonMap(OVERLAY_STATE_FILE, {
+    x = f.x, y = f.y, w = f.w, h = f.h, enabled = O.enabled, view = O.view,
+  })
+end
+
+local function buildOverlayWebview()
+  local html = readFileText(scriptDir .. "wave-dashboard.html") or ""
+  html = html:gsub("/%*__STATUSVARS__%*/", function() return statusVarsCss() end)
+  html = html:gsub("/%*__THEME__%*/", function() return themeCss() end)
+  html = html:gsub('/%*__VIEW__%*/"workspace"', function() return '"' .. O.view .. '"' end)
+  -- /*__DATA__*/[] stays [] here; live rows are pushed by the poll timer.
+  local wv = hs.webview.new(O.frame, { developerExtrasEnabled = false })
+  -- nonactivating is load-bearing: the panel can be clicked without stealing
+  -- key focus from Wave.
+  wv:windowStyle(hs.webview.windowMasks.borderless | hs.webview.windowMasks.nonactivating)
+  wv:level(hs.canvas.windowLevels.popUpMenu)
+  wv:transparent(true)
+  wv:shadow(true)
+  wv:html(html)
+  O.webview = wv
+end
+
+-- Header-strip drag. SAFETY: this tap NEVER consumes an event (every path returns
+-- false), so clicks in the body or anywhere else always reach their target. It
+-- only observes, and moves the panel while a header drag is in progress.
+local function startDragTap()
+  if O.dragTap then
+    if not O.dragTap:isEnabled() then O.dragTap:start() end
+    return
+  end
+  local types = hs.eventtap.event.types
+  local dragging, offX, offY = false, 0, 0
+  O.dragTap = hs.eventtap.new(
+    { types.leftMouseDown, types.leftMouseDragged, types.leftMouseUp },
+    function(e)
+      local ok = pcall(function()
+        local t = e:getType()
+        if t == types.leftMouseDown then
+          dragging = false
+          if not O.webview then return end
+          local p = hs.mouse.absolutePosition()
+          local f = O.webview:frame()
+          if p.x >= f.x and p.x <= f.x + f.w
+             and p.y >= f.y and p.y <= f.y + OVERLAY_HEADER_H then
+            dragging, offX, offY = true, p.x - f.x, p.y - f.y
+          end
+        elseif t == types.leftMouseDragged then
+          if dragging and O.webview then
+            local p = hs.mouse.absolutePosition()
+            local f = O.webview:frame()
+            O.frame = { x = p.x - offX, y = p.y - offY, w = f.w, h = f.h }
+            O.webview:frame(O.frame)
+          end
+        elseif t == types.leftMouseUp then
+          if dragging then
+            dragging = false
+            saveOverlayState()
+          end
+        end
+      end)
+      if not ok then dragging = false end
+      return false -- never consume
+    end)
+  O.dragTap:start()
+end
+
+local function stopDragTap()
+  if O.dragTap then O.dragTap:stop(); O.dragTap = nil end
+end
+
+local function showOverlay()
+  if not O.frame then O.frame = defaultOverlayFrame() end
+  if not O.webview then buildOverlayWebview() end
+  O.webview:show()
+  startDragTap()
+end
+
+local function hideOverlay()
+  if O.webview then O.webview:hide() end
+  stopDragTap()
+end
+
+-- Enable the hotkeys and show/hide the overlay based on whether Wave is frontmost.
 local function refresh()
+  local front = hs.application.frontmostApplication()
+  local waveFront = front and front:bundleID() == WAVE_BUNDLE
+  -- The overlay coexists with the popup, so it is managed regardless of `webview`.
+  if waveFront and O.enabled then showOverlay() else hideOverlay() end
+  if toggleHotkey then
+    if waveFront then toggleHotkey:enable() else toggleHotkey:disable() end
+  end
   if not hotkey then return end
   if webview then return end -- don't fight the key tap while the picker is open
-  local front = hs.application.frontmostApplication()
-  if front and front:bundleID() == WAVE_BUNDLE then
-    hotkey:enable()
-  else
-    hotkey:disable()
-  end
+  if waveFront then hotkey:enable() else hotkey:disable() end
+end
+
+local function toggleOverlay()
+  O.enabled = not O.enabled
+  saveOverlayState()
+  refresh()
 end
 
 --------------------------------------------------------------------------------
@@ -867,13 +995,15 @@ end
 --- Binds the hotkey that opens the switcher.
 ---
 --- Parameters:
----  * mapping - a table with an `open` key, e.g.
----              `{ open = {{"ctrl"}, "k"} }`
+---  * mapping - a table with an `open` key and optionally `toggleDashboard`
+---              (default Cmd+Shift+D), e.g.
+---              `{ open = {{"ctrl"}, "k"}, toggleDashboard = {{"cmd","shift"}, "d"} }`
 ---
 --- Returns:
 ---  * The WaveSwitcher object
 function obj:bindHotkeys(mapping)
   if mapping and mapping.open then self._hotkeySpec = mapping.open end
+  if mapping and mapping.toggleDashboard then self._toggleSpec = mapping.toggleDashboard end
   return self
 end
 
@@ -891,6 +1021,9 @@ function obj:start()
   hotkey = hs.hotkey.new(spec[1], spec[2], function()
     if webview then close() else open() end
   end)
+  local tspec = self._toggleSpec or { { "cmd", "shift" }, "d" }
+  toggleHotkey = hs.hotkey.new(tspec[1], tspec[2], toggleOverlay)
+  loadOverlayState()
   watcher = hs.application.watcher.new(refresh)
   watcher:start()
   refresh()
@@ -929,6 +1062,9 @@ end
 function obj:stop()
   if watcher then watcher:stop(); watcher = nil end
   if hotkey then hotkey:disable(); hotkey = nil end
+  if toggleHotkey then toggleHotkey:disable(); toggleHotkey = nil end
+  stopDragTap()
+  if O.webview then O.webview:delete(); O.webview = nil end
   close()
   self._started = false
   return self
