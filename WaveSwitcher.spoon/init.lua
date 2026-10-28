@@ -228,11 +228,9 @@ local TOP_FRAC = 0.15
 -- on reopen; refreshed in the background each open.
 local gitCache = {}
 
-local function loadEntries()
-  local out, ok = hs.execute("'" .. LIST_SCRIPT .. "'", true) -- login shell (PATH)
-  if not ok or not out or out == "" then return {} end
-  local data = hs.json.decode(out)
-  if type(data) ~= "table" then return {} end
+-- Turn the decoded session-list JSON (a Lua array) into entries, merging pins,
+-- followups and the git cache. Shared by the popup (loadEntries) and the overlay.
+local function buildEntries(data)
   local pins = readPins()
   local followups = readFollowups()
   local entries = {}
@@ -257,6 +255,14 @@ local function loadEntries()
     }
   end
   return entries
+end
+
+local function loadEntries()
+  local out, ok = hs.execute("'" .. LIST_SCRIPT .. "'", true) -- login shell (PATH)
+  if not ok or not out or out == "" then return {} end
+  local data = hs.json.decode(out)
+  if type(data) ~= "table" then return {} end
+  return buildEntries(data)
 end
 
 --------------------------------------------------------------------------------
@@ -545,7 +551,7 @@ local function rowsJson(list)
   if #list == 0 then return "[]" end -- hs.json.encode({}) yields "{}", not "[]"
   local rows = {}
   for _, e in ipairs(list) do
-    rows[#rows + 1] = { ws = e.ws, wsName = e.wsName, tabName = e.tabName,
+    rows[#rows + 1] = { ws = e.ws, tabId = e.tabId, wsName = e.wsName, tabName = e.tabName,
                         status = e.status, color = e.color, pinned = e.pinned,
                         flagged = e.flagged, note = e.note,
                         branch = e.branch, worktree = e.worktree, activity = e.activity }
@@ -857,8 +863,9 @@ local OVERLAY_HEADER_H = 34 -- draggable strip at the top of the panel
 local OVERLAY_MARGIN = 16
 local OVERLAY_W, OVERLAY_H = 360, 560
 
--- timers is reserved for the poll/git/usage timers added with live data.
-local O = { webview = nil, enabled = true, view = "workspace", frame = nil, dragTap = nil, timers = {} }
+-- entries: latest rows; pollTimer/gitTimer/usageTimer run only while visible.
+local O = { webview = nil, enabled = true, view = "workspace", frame = nil, dragTap = nil,
+            entries = {}, pollTimer = nil, gitTimer = nil, usageTimer = nil }
 local toggleHotkey = nil
 
 local function defaultOverlayFrame()
@@ -954,14 +961,116 @@ local function stopDragTap()
   if O.dragTap then O.dragTap:stop(); O.dragTap = nil end
 end
 
+-- Order by the current view and push rows to the page. Called from timer/task
+-- callbacks only (never from an eventtap).
+local function overlayRender()
+  if not O.webview then return end
+  local list = (O.view == "triage") and orderTriage(O.entries) or orderWorkspace(O.entries)
+  local js = "window.setData(" .. rowsJson(list) .. "," .. jsStr(O.view) .. ")"
+  O.webview:evaluateJavaScript(js, function() end)
+end
+
+-- Async (hs.task) so the sqlite read never stalls the main thread. At most one
+-- reload is in flight at a time.
+local reloading = false
+local function overlayReload()
+  if not O.webview or reloading then return end
+  reloading = true
+  local task = hs.task.new("/bin/zsh", function(_, out)
+    reloading = false
+    if not O.webview or not out or out == "" then return end
+    local ok, data = pcall(hs.json.decode, out)
+    if not ok or type(data) ~= "table" then return end
+    O.entries = buildEntries(data)
+    overlayRender()
+  end, { "-lc", "'" .. LIST_SCRIPT .. "'" })
+  if task then
+    if not task:start() then reloading = false end
+  else
+    reloading = false
+  end
+end
+
+local gitRunning = false
+local function overlayRefreshGit()
+  if not O.webview or gitRunning then return end
+  local seen, cwds = {}, {}
+  for _, e in ipairs(O.entries) do
+    if e.cwd and not seen[e.cwd] then seen[e.cwd] = true; cwds[#cwds + 1] = e.cwd end
+  end
+  if #cwds == 0 then return end
+  gitRunning = true
+  local task = hs.task.new(GITINFO_SCRIPT, function(_, out)
+    gitRunning = false
+    if not O.webview or not out or out == "" then return end
+    local ok, arr = pcall(hs.json.decode, out)
+    if not ok or type(arr) ~= "table" then return end
+    for _, g in ipairs(arr) do
+      if g.cwd then gitCache[g.cwd] = { branch = g.branch, worktree = g.worktree == true } end
+    end
+    for _, e in ipairs(O.entries) do
+      local gi = e.cwd and gitCache[e.cwd] or nil
+      if gi then e.branch = gi.branch; e.worktree = gi.worktree end
+    end
+    overlayRender()
+  end)
+  if task then
+    task:setInput(table.concat(cwds, "\n") .. "\n")
+    if not task:start() then gitRunning = false end
+  else
+    gitRunning = false
+  end
+end
+
+local function overlayPushUsage()
+  if not O.webview then return end
+  local js = "window.setUsage(" .. (lastUsage and hs.json.encode(lastUsage) or "null") .. ")"
+  O.webview:evaluateJavaScript(js, function() end)
+end
+
+local function overlayRefreshUsage()
+  if not O.webview then return end
+  local task = hs.task.new("/bin/zsh", function(_, out)
+    if not out or out == "" then return end
+    local ok, u = pcall(hs.json.decode, out)
+    if ok and type(u) == "table" then
+      lastUsage = u
+      overlayPushUsage()
+      pushUsage() -- keep the popup's footer in step too (no-op when closed)
+    end
+  end, { "-lc", USAGE_SCRIPT })
+  if task then task:start() end
+end
+
+local function startOverlayTimers()
+  if not O.pollTimer then O.pollTimer = hs.timer.doEvery(2, overlayReload) end
+  if not O.gitTimer then O.gitTimer = hs.timer.doEvery(20, overlayRefreshGit) end
+  if not O.usageTimer then O.usageTimer = hs.timer.doEvery(60, overlayRefreshUsage) end
+end
+
+local function stopOverlayTimers()
+  for _, k in ipairs({ "pollTimer", "gitTimer", "usageTimer" }) do
+    if O[k] then O[k]:stop(); O[k] = nil end
+  end
+end
+
 local function showOverlay()
   if not O.frame then O.frame = defaultOverlayFrame() end
+  local fresh = O.pollTimer == nil
   if not O.webview then buildOverlayWebview() end
   O.webview:show()
   startDragTap()
+  startOverlayTimers()
+  if fresh then -- first show after being hidden: prime immediately
+    overlayPushUsage()
+    overlayReload()
+    overlayRefreshGit()
+    overlayRefreshUsage()
+  end
 end
 
 local function hideOverlay()
+  stopOverlayTimers()
   if O.webview then O.webview:hide() end
   stopDragTap()
 end
@@ -1064,6 +1173,7 @@ function obj:stop()
   if hotkey then hotkey:disable(); hotkey = nil end
   if toggleHotkey then toggleHotkey:disable(); toggleHotkey = nil end
   stopDragTap()
+  stopOverlayTimers()
   if O.webview then O.webview:delete(); O.webview = nil end
   close()
   self._started = false
