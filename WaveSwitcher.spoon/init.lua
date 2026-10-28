@@ -84,6 +84,44 @@ obj._test = obj._test or {}
 obj._test.pinSet = pinSet
 obj._test.flagSet = flagSet
 obj._test.flagClear = flagClear
+
+-- Pure view-ordering helpers (no IO). Stable: ties keep input order.
+local STATUS_RANK = {
+  ["needs input"] = 1, running = 2, subagents = 3,
+  shell = 4, compacting = 5, idle = 6,
+}
+local function statusRank(status)
+  return STATUS_RANK[status] or 7
+end
+local function stableSort(entries, key)
+  local dec = {}
+  for i, e in ipairs(entries) do dec[i] = { e = e, k = key(e), i = i } end
+  table.sort(dec, function(a, b)
+    if a.k ~= b.k then return a.k < b.k end
+    return a.i < b.i
+  end)
+  local out = {}
+  for i, d in ipairs(dec) do out[i] = d.e end
+  return out
+end
+local function orderWorkspace(entries)
+  return stableSort(entries, function(e) return e.pinned and 0 or 1 end)
+end
+local function orderTriage(entries)
+  return stableSort(entries, function(e) return statusRank(e.status) end)
+end
+local function sameWs(entries, tabId)
+  local cur, target
+  for _, e in ipairs(entries) do
+    if e.current == true and not cur then cur = e end
+    if e.tabId == tabId and not target then target = e end
+  end
+  return (cur ~= nil and target ~= nil and cur.ws == target.ws) or false
+end
+obj._test.statusRank = statusRank
+obj._test.orderWorkspace = orderWorkspace
+obj._test.orderTriage = orderTriage
+obj._test.sameWs = sameWs
 local function sqlite1(query)
   local out = hs.execute("/usr/bin/sqlite3 'file:" .. DB_PATH .. "?mode=ro' \"" .. query .. "\"")
   if not out then return nil end
