@@ -1,7 +1,11 @@
 -- Pure-logic tests for the status overlay. Run via tests/overlay_test.sh
--- (needs Hammerspoon Lua; global WSW_SPOON_INIT = path to init.lua).
--- hs is a separate process, so the path arrives as a Lua global, not an env var.
-local obj = dofile(WSW_SPOON_INIT)
+-- under standalone lua (never the live Hammerspoon). WSW_SPOON_INIT = init.lua path.
+hs = { configdir = os.getenv("HOME") .. "/.hammerspoon" }
+local loaded, obj = pcall(dofile, os.getenv("WSW_SPOON_INIT"))
+if not loaded then
+  print("FAIL - could not load init.lua: " .. tostring(obj))
+  os.exit(1)
+end
 local T = obj._test
 local ok, bad = 0, 0
 
@@ -31,7 +35,6 @@ local function ids(list)
   for i, e in ipairs(list) do out[i] = e.tabId end
   return out
 end
-_ = ids
 
 if not T then
   print("FAIL - obj._test is not defined")
