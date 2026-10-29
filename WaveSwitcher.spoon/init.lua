@@ -22,7 +22,7 @@ obj.__index = obj
 
 -- Metadata
 obj.name = "WaveSwitcher"
-obj.version = "1.2.1"
+obj.version = "1.3.0"
 obj.author = "mdoyle"
 obj.homepage = "https://github.com/doyled-it/wave-switcher"
 obj.license = "MIT - https://opensource.org/licenses/MIT"
