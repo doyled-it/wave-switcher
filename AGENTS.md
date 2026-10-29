@@ -104,6 +104,30 @@ own without a dedicated completion hook. The only stale window is a task that
 finishes while you never return to the session; it clears on your next
 interaction.
 
+### The status overlay (second webview)
+
+`init.lua` also builds an always-on panel (`wave-dashboard.html`) listing every
+session, shown only while Wave is frontmost (`refresh` shows/hides it) and toggled
+by `toggleDashboard` (default `Cmd+Shift+D`, never `Ctrl+D` which is terminal EOF).
+It shares the popup's entry loading, status colors, and pin/flag transforms. Notes:
+
+- **Non-activating.** The window is `borderless | nonactivating` so clicks do not
+  steal key focus from Wave. Keep it that way.
+- **Clicks route through `policyCallback`, not a message bridge.** Links in the page
+  are `wsw://<verb>?...` (`jump`, `pin`, `flag`, `view`, `settings`, `set`, `hide`);
+  `overlayPolicy` denies the navigation and calls `overlayDispatch`. Any overlay
+  local referenced before its definition (e.g. `overlayRender`, `hideOverlay`) must
+  be forward-declared or the handlers see nil.
+- **Rendering** is pushed from Lua with `setData(rows, view, settings, settingsOpen)`
+  on a 2s poll (git every 20s, usage every 60s); content height auto-fits (clamped
+  by `clampHeight`) until the user resizes (`userSized`). Drag and the bottom-right
+  resize grip are handled by a Lua mouse tap over the header/grip regions.
+- **Settings toggles** (`overlaySettings`, merged over `OVERLAY_SETTING_DEFAULTS`):
+  `showBranch`, `showTime`, `showUsage`, `showPill` (the dot always shows), and
+  `compact`. The default view (`workspace`/`triage`) is stored beside them. The gear
+  toggles the panel (`O.settingsOpen`, not persisted).
+- Follow-up notes are authored only in the popup; the overlay just toggles the flag.
+
 ### Non-obvious constraints (do not "simplify" these)
 
 - **The webview must never take keyboard focus.** It is a render-only
