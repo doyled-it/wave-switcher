@@ -120,4 +120,13 @@ do
     { showBranch = true, showTime = true, showUsage = true, showPill = true, compact = false })
 end
 
+do
+  local scr = { {x=0,y=0,w=1000,h=800}, {x=1000,y=0,w=800,h=600} }
+  eq("frameVisible on screen", T.frameVisible({x=100,y=100,w=360,h=500}, scr), true)
+  eq("frameVisible on second screen", T.frameVisible({x=1200,y=50,w=360,h=500}, scr), true)
+  eq("frameVisible partially overlapping", T.frameVisible({x=900,y=700,w=360,h=500}, scr), true)
+  eq("frameVisible off all screens", T.frameVisible({x=5000,y=5000,w=360,h=500}, scr), false)
+  eq("frameVisible no screens", T.frameVisible({x=0,y=0,w=10,h=10}, {}), false)
+end
+
 if bad == 0 and T then print("ALL PASS") end

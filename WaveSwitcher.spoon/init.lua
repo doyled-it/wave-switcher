@@ -1271,7 +1271,7 @@ local function overlayRefreshUsage()
       overlayPushUsage()
       pushUsage() -- keep the popup's footer in step too (no-op when closed)
     end
-  end, { "-lc", USAGE_SCRIPT })
+  end, { "-lc", "'" .. USAGE_SCRIPT .. "'" })
   if task then task:start() end
 end
 
@@ -1287,8 +1287,28 @@ local function stopOverlayTimers()
   end
 end
 
+-- Pure: does `frame` overlap any of `screens` (list of {x,y,w,h})?
+local function frameVisible(frame, screens)
+  if type(frame) ~= "table" then return false end
+  for _, s in ipairs(screens or {}) do
+    if frame.x < s.x + s.w and frame.x + frame.w > s.x
+       and frame.y < s.y + s.h and frame.y + frame.h > s.y then
+      return true
+    end
+  end
+  return false
+end
+obj._test.frameVisible = frameVisible
+
 local function showOverlay()
   if not O.frame then O.frame = defaultOverlayFrame() end
+  -- A restored frame can be off every screen after a monitor change: recover.
+  local screens = {}
+  for _, sc in ipairs(hs.screen.allScreens()) do screens[#screens + 1] = sc:frame() end
+  if #screens > 0 and not frameVisible(O.frame, screens) then
+    O.frame = defaultOverlayFrame()
+    if O.webview then O.webview:frame(O.frame) end
+  end
   local fresh = O.pollTimer == nil
   if not O.webview then buildOverlayWebview() end
   O.webview:show()
@@ -1408,6 +1428,7 @@ function obj:stop()
   if hotkey then hotkey:disable(); hotkey = nil end
   if toggleHotkey then toggleHotkey:disable(); toggleHotkey = nil end
   stopDragTap()
+  stopResizeTap()
   stopOverlayTimers()
   if O.webview then O.webview:delete(); O.webview = nil end
   close()

@@ -259,8 +259,8 @@
     var list = document.getElementById('list');
     var cs = list ? getComputedStyle(list) : null;
     var pad = cs ? parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) : 0;
-    var set = (settingsEl && settingsEl.style.display !== 'none') ? settingsEl.offsetHeight + 1 : 0;
-    return Math.ceil((head ? head.offsetHeight + 1 : 0) + set + pad + listEl.scrollHeight);
+    var set = (settingsEl && settingsEl.style.display !== 'none') ? settingsEl.offsetHeight : 0;
+    return Math.ceil((head ? head.offsetHeight : 0) + set + pad + listEl.scrollHeight);
   };
 
   // First paint from embedded data, so it shows before any JS is injected.

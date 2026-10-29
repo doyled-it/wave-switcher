@@ -81,7 +81,8 @@ workspace. It is visible while Wave Terminal is the frontmost app and hidden
 otherwise. It never takes keyboard focus, so Wave stays the key window.
 
 - **Toggle**: `Cmd+Shift+D` (configurable, see [Configuration](#configuration)), or
-  the **×** button in the panel header. It is deliberately not `Ctrl+D`, which is
+  the **×** button in the panel header hides it (re-show it with the toggle
+  hotkey). It is deliberately not `Ctrl+D`, which is
   terminal EOF.
 - **Same signals as the popup**: status colors, branch chips, time in state, the
   usage line, pins and follow-up flags.
@@ -99,7 +100,8 @@ State (overlay position, size and settings, plus pins and follow-ups) is stored 
 Hammerspoon's own settings store (`hs.settings`), not in files under
 `~/.hammerspoon/`. Many Hammerspoon configs auto-reload on any file change there,
 so writing state files would reload your config on every drag or pin. Existing
-`waveswitcher-pins.json` and `waveswitcher-followups.json` files are migrated
+`waveswitcher-pins.json`, `waveswitcher-followups.json` and
+`waveswitcher-overlay.json` files are migrated
 automatically on first use and then left in place (they are no longer written).
 
 No extra setup is needed: the overlay ships in the Spoon and appears when Wave is
