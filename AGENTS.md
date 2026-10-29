@@ -115,10 +115,13 @@ interaction.
   `P.dirty`; a separate repeating `renderTimer` (clean context) does the render.
   `togglePin` is the exception: it runs via `hs.timer.doAfter(0, ...)`, outside
   the tap.
-- **Pins and follow-up flags live in JSON files** (`waveswitcher-pins.json`,
-  `waveswitcher-followups.json` under `hs.configdir`), not Wave metadata, because
-  Hammerspoon has no `WAVETERM_JWT` and so cannot use `wsh`. Both are keyed by tab
-  id and share `readJsonMap`/`writeJsonMap`. Pins map `tabId -> true` and float to
+- **Pins, follow-up flags, and overlay state live in `hs.settings`** (keys
+  `waveswitcher.pins`/`.followups`/`.overlay`), never in files under
+  `~/.hammerspoon/`: many configs reload on any write there. Legacy
+  `waveswitcher-*.json` files are imported once (via `readSetting`) and never
+  written or deleted. Not Wave metadata, because
+  Hammerspoon has no `WAVETERM_JWT` and so cannot use `wsh`. Both maps are keyed by tab
+  id. Pins map `tabId -> true` and float to
   the PINNED group; follow-ups map `tabId -> note` (`""` = flagged, no note), do
   NOT reorder the list (inline amber flag marker only), and auto-clear when you
   jump to the session. Because `P.filtered` holds the same entry tables as

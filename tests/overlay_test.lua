@@ -100,4 +100,12 @@ do
   T.clearFlagList(L, "gone");      eq("clearFlagList stale no-op", #L, 1)
 end
 
+do
+  eq("clampHeight within range", T.clampHeight(400, 1000), 400)
+  eq("clampHeight capped at 70% of screen", T.clampHeight(900, 1000), 700)
+  eq("clampHeight floor", T.clampHeight(50, 1000), 160)
+  eq("clampHeight tiny screen keeps floor", T.clampHeight(500, 100), 160)
+  eq("clampHeight non-number content", T.clampHeight(nil, 1000), 160)
+end
+
 if bad == 0 and T then print("ALL PASS") end

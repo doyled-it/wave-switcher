@@ -44,12 +44,18 @@ local WAVE_SETTINGS = os.getenv("HOME") .. "/.config/waveterm/settings.json"
 -- UUIDs into the query, so no escaping is needed.
 local DB_PATH = os.getenv("HOME") .. "/Library/Application Support/waveterm/db/waveterm.db"
 
--- Pins and follow-up flags are switcher concepts, each stored in our own JSON
--- file keyed by tab id. We can't use `wsh` for this: it refuses to run outside a
--- Wave block (no WAVETERM_JWT in Hammerspoon's context). Pins map tabId -> true;
--- follow-ups map tabId -> note string ("" = flagged with no note).
+-- Pins and follow-up flags are switcher concepts, keyed by tab id. We can't use
+-- `wsh` for this: it refuses to run outside a Wave block (no WAVETERM_JWT in
+-- Hammerspoon's context). Pins map tabId -> true; follow-ups map tabId -> note
+-- string ("" = flagged with no note).
+--
+-- Persistence lives in hs.settings, NOT in files under hs.configdir: a common
+-- config watches ~/.hammerspoon/ and reloads on any write there. The legacy JSON
+-- files are read once to migrate existing data, never written or deleted.
 local PIN_FILE      = hs.configdir .. "/waveswitcher-pins.json"
 local FOLLOWUP_FILE = hs.configdir .. "/waveswitcher-followups.json"
+local PIN_KEY, FOLLOWUP_KEY, OVERLAY_KEY =
+  "waveswitcher.pins", "waveswitcher.followups", "waveswitcher.overlay"
 local function readJsonMap(path)
   local f = io.open(path, "r")
   if not f then return {} end
@@ -57,15 +63,19 @@ local function readJsonMap(path)
   local ok, t = pcall(hs.json.decode, s)
   return (ok and type(t) == "table") and t or {}
 end
-local function writeJsonMap(path, t)
-  local f = io.open(path, "w")
-  if not f then return end
-  f:write(hs.json.encode(t)); f:close()
+-- Read a map from hs.settings; when the key is unset, import the legacy JSON file
+-- once and store it so existing data carries over.
+local function readSetting(key, legacyPath)
+  local t = hs.settings.get(key)
+  if type(t) == "table" then return t end
+  t = readJsonMap(legacyPath)
+  hs.settings.set(key, t)
+  return t
 end
-local function readPins()        return readJsonMap(PIN_FILE) end
-local function writePins(t)      writeJsonMap(PIN_FILE, t) end
-local function readFollowups()   return readJsonMap(FOLLOWUP_FILE) end
-local function writeFollowups(t) writeJsonMap(FOLLOWUP_FILE, t) end
+local function readPins()        return readSetting(PIN_KEY, PIN_FILE) end
+local function writePins(t)      hs.settings.set(PIN_KEY, t) end
+local function readFollowups()   return readSetting(FOLLOWUP_KEY, FOLLOWUP_FILE) end
+local function writeFollowups(t) hs.settings.set(FOLLOWUP_KEY, t) end
 
 -- Pure state transforms (no IO) shared by the popup and the status overlay.
 local function pinSet(map, tabId, on)
@@ -890,15 +900,19 @@ local OVERLAY_STATE_FILE = hs.configdir .. "/waveswitcher-overlay.json"
 local OVERLAY_HEADER_H = 34 -- draggable strip at the top of the panel
 local OVERLAY_MARGIN = 16
 local OVERLAY_W, OVERLAY_H = 360, 560
+local OVERLAY_MIN_H = 160
+local OVERLAY_GRIP = 18 -- bottom-right resize corner (px square)
 
 -- entries: latest rows; pollTimer/gitTimer/usageTimer run only while visible.
-O = { webview = nil, enabled = true, view = "workspace", frame = nil, dragTap = nil,
+O = { webview = nil, enabled = true, view = "workspace", frame = nil, dragTap = nil, resizeTap = nil, userSized = false,
             entries = {}, pollTimer = nil, gitTimer = nil, usageTimer = nil }
 local toggleHotkey = nil
 -- Forward declarations: any overlay local referenced above its definition MUST be
 -- declared here and defined by assignment (NAME = function), never `local function`
 -- (a late `local function` leaves earlier closures bound to a nil global).
 local overlayRender
+local hideOverlay
+local stopResizeTap
 
 local function defaultOverlayFrame()
   local scr = hs.screen.mainScreen():frame()
@@ -910,9 +924,10 @@ local function defaultOverlayFrame()
 end
 
 local function loadOverlayState()
-  local t = readJsonMap(OVERLAY_STATE_FILE)
+  local t = readSetting(OVERLAY_KEY, OVERLAY_STATE_FILE)
   O.enabled = (t.enabled ~= false)
   O.view = (t.view == "triage") and "triage" or "workspace"
+  O.userSized = (t.userSized == true)
   if type(t.x) == "number" and type(t.y) == "number"
      and type(t.w) == "number" and type(t.h) == "number" and t.w > 0 and t.h > 0 then
     O.frame = { x = t.x, y = t.y, w = t.w, h = t.h }
@@ -923,10 +938,21 @@ end
 
 local function saveOverlayState()
   local f = O.frame or {}
-  writeJsonMap(OVERLAY_STATE_FILE, {
+  hs.settings.set(OVERLAY_KEY, {
     x = f.x, y = f.y, w = f.w, h = f.h, enabled = O.enabled, view = O.view,
+    userSized = O.userSized == true,
   })
 end
+
+-- Pure: content height clamped to [OVERLAY_MIN_H, 70% of screen height].
+local function clampHeight(content, screenH)
+  local lo = OVERLAY_MIN_H
+  local hi = math.max(lo, math.floor((tonumber(screenH) or 0) * 0.7))
+  local h = tonumber(content) or lo
+  return math.max(lo, math.min(hi, math.floor(h)))
+end
+obj._test = obj._test or {}
+obj._test.clampHeight = clampHeight
 
 -- Decode %XX and + in a query value.
 local function urlDecode(v)
@@ -942,6 +968,12 @@ local function overlayDispatch(verb, params)
       saveOverlayState()
       overlayRender()
     end
+    return
+  end
+  if verb == "hide" then
+    O.enabled = false
+    saveOverlayState()
+    hideOverlay()
     return
   end
   if not tabId then return end
@@ -1056,13 +1088,85 @@ local function stopDragTap()
   if O.dragTap then O.dragTap:stop(); O.dragTap = nil end
 end
 
+-- Bottom-right corner resize. SAFETY: same contract as the drag tap. Every path
+-- returns false (never consumes); it acts only when a mouse-down lands inside the
+-- OVERLAY_GRIP corner square, and only until that gesture's mouse-up.
+local function startResizeTap()
+  if O.resizeTap then
+    if not O.resizeTap:isEnabled() then O.resizeTap:start() end
+    return
+  end
+  local types = hs.eventtap.event.types
+  local resizing, startP, startF = false, nil, nil
+  O.resizeTap = hs.eventtap.new(
+    { types.leftMouseDown, types.leftMouseDragged, types.leftMouseUp },
+    function(e)
+      local ok = pcall(function()
+        local t = e:getType()
+        if t == types.leftMouseDown then
+          resizing = false
+          if not O.webview then return end
+          local p = hs.mouse.absolutePosition()
+          local f = O.webview:frame()
+          if p.x >= f.x + f.w - OVERLAY_GRIP and p.x <= f.x + f.w
+             and p.y >= f.y + f.h - OVERLAY_GRIP and p.y <= f.y + f.h then
+            resizing, startP, startF = true, p, f
+          end
+        elseif t == types.leftMouseDragged then
+          if resizing and O.webview then
+            local p = hs.mouse.absolutePosition()
+            O.frame = {
+              x = startF.x, y = startF.y,
+              w = math.max(260, startF.w + (p.x - startP.x)),
+              h = math.max(OVERLAY_MIN_H, startF.h + (p.y - startP.y)),
+            }
+            O.webview:frame(O.frame)
+          end
+        elseif t == types.leftMouseUp then
+          if resizing then
+            resizing = false
+            O.userSized = true -- stop auto-fitting from now on
+            saveOverlayState()
+          end
+        end
+      end)
+      if not ok then resizing = false end
+      return false -- never consume
+    end)
+  O.resizeTap:start()
+end
+
+stopResizeTap = function()
+  if O.resizeTap then O.resizeTap:stop(); O.resizeTap = nil end
+end
+
+-- Fit the panel height to its content (until the user resizes manually). The
+-- page reports its natural height; Lua clamps it and resizes. Timer/callback
+-- context only, never an eventtap.
+local function overlayAutoFit()
+  if O.userSized or not O.webview then return end
+  O.webview:evaluateJavaScript("window.contentHeight ? window.contentHeight() : 0",
+    function(h)
+      pcall(function()
+        if not O.webview or O.userSized or type(h) ~= "number" or h <= 0 then return end
+        local scr = hs.screen.mainScreen():frame()
+        local f = O.webview:frame()
+        local nh = clampHeight(h, scr.h)
+        if math.abs(nh - f.h) >= 2 then
+          O.frame = { x = f.x, y = f.y, w = f.w, h = nh }
+          O.webview:frame(O.frame)
+        end
+      end)
+    end)
+end
+
 -- Order by the current view and push rows to the page. Called from timer/task
 -- callbacks only (never from an eventtap).
 overlayRender = function()
   if not O.webview then return end
   local list = (O.view == "triage") and orderTriage(O.entries) or orderWorkspace(O.entries)
   local js = "window.setData(" .. rowsJson(list) .. "," .. jsStr(O.view) .. ")"
-  O.webview:evaluateJavaScript(js, function() end)
+  O.webview:evaluateJavaScript(js, function() overlayAutoFit() end)
 end
 
 -- Async (hs.task) so the sqlite read never stalls the main thread. At most one
@@ -1155,6 +1259,7 @@ local function showOverlay()
   if not O.webview then buildOverlayWebview() end
   O.webview:show()
   startDragTap()
+  startResizeTap()
   startOverlayTimers()
   if fresh then -- first show after being hidden: prime immediately
     overlayPushUsage()
@@ -1164,10 +1269,11 @@ local function showOverlay()
   end
 end
 
-local function hideOverlay()
+hideOverlay = function()
   stopOverlayTimers()
   if O.webview then O.webview:hide() end
   stopDragTap()
+  stopResizeTap()
 end
 
 -- Enable the hotkeys and show/hide the overlay based on whether Wave is frontmost.
