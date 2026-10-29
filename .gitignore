@@ -6,3 +6,4 @@ __pycache__/
 docs/superpowers/
 *-design.md
 *-plan.md
+luac.out
