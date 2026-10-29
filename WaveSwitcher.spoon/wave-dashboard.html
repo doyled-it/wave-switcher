@@ -1,0 +1,271 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+  :root{
+    color-scheme: dark;
+    --bg:#181a1e; --text:#f2f3f5; --muted:#9aa1ac; --dim:#dfe2e7;
+    --border:rgba(255,255,255,.10); --accent:#4a9eff; --flag:#ffb454;
+    --fun-mono:ui-monospace,"SF Mono",Menlo,monospace;
+    /*__STATUSVARS__*/
+    /*__THEME__*/
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:var(--bg);
+    font-family:-apple-system,"SF Pro Text","Helvetica Neue",Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;color:var(--text);}
+  a{color:inherit;text-decoration:none}
+  .wrap{height:100%;display:flex;flex-direction:column;}
+  .head{flex:none;display:flex;align-items:center;gap:12px;height:34px;padding:0 6px 0 12px;
+    border-bottom:1px solid var(--border);cursor:move;user-select:none;-webkit-user-select:none;}
+  .head a{cursor:pointer;}
+  .hide{flex:none;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
+    border-radius:6px;font-size:16px;line-height:1;color:var(--muted);opacity:.6;}
+  .hide:hover{opacity:1;background:rgba(255,255,255,.10);}
+  .gear{flex:none;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
+    border-radius:6px;color:var(--muted);opacity:.6;}
+  .gear svg{width:14px;height:14px;}
+  .gear:hover,.gear.on{opacity:1;background:rgba(255,255,255,.10);}
+  .settings{flex:none;padding:8px 12px 10px;border-bottom:1px solid var(--border);background:rgba(255,255,255,.03);}
+  .settings .srow{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:26px;font-size:12px;color:var(--dim);}
+  .settings .srow a.sw{flex:none;position:relative;width:30px;height:16px;border-radius:999px;
+    background:rgba(255,255,255,.16);}
+  .settings .srow a.sw::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;
+    background:var(--muted);transition:left .12s;}
+  .settings .srow a.sw.on{background:var(--accent);}
+  .settings .srow a.sw.on::after{left:16px;background:#fff;}
+  .grip{position:fixed;right:3px;bottom:3px;width:14px;height:14px;pointer-events:none;opacity:.45;
+    background:linear-gradient(135deg,transparent 0 45%,var(--muted) 45% 55%,transparent 55% 70%,var(--muted) 70% 80%,transparent 80%);}
+  .title{font-size:12px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);}
+  .toggle{display:inline-flex;border:1px solid var(--border);border-radius:7px;overflow:hidden;}
+  .toggle a{font-size:11px;padding:3px 10px;color:var(--muted);}
+  .toggle a.active{color:var(--text);background:rgba(255,255,255,.10);}
+  .list{flex:1;min-height:0;overflow-y:auto;padding:4px 6px 8px;}
+  .list::-webkit-scrollbar{width:9px}
+  .list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:5px;border:2px solid transparent;background-clip:content-box}
+  .group{display:flex;align-items:center;gap:8px;height:28px;padding:0 10px;
+    font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);}
+  .group .wsdot{width:8px;height:8px;border-radius:2px;flex:none;}
+  .group.pinned{color:var(--accent);}
+  .group .pinicon{font-size:11px;line-height:1;}
+  .name .sep{color:var(--muted);margin:0 2px;}
+  .name .ws{font-weight:600;}
+  .flag{color:var(--flag);font-size:13px;line-height:1;flex:none;}
+  .row{display:flex;align-items:center;gap:8px;height:36px;padding:0 8px 0 10px;margin-left:14px;border-radius:9px;}
+  .compact .row{height:26px;gap:6px;}
+  .compact .group{height:22px;}
+  .compact .name{font-size:12.5px;}
+  .row:hover{background:rgba(255,255,255,.06);}
+  .dot{width:10px;height:10px;border-radius:50%;flex:none;}
+  .lead{flex:1;min-width:0;display:flex;align-items:center;gap:7px;overflow:hidden;height:100%;}
+  .name{min-width:0;flex:0 1 auto;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .note{min-width:0;flex:0 1 auto;color:var(--muted);font-size:12px;opacity:.9;font-style:italic;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .chip{flex:none;display:inline-flex;align-items:center;gap:5px;max-width:200px;
+    font-family:var(--fun-mono);font-size:11px;font-weight:700;letter-spacing:-.2px;color:var(--dim);
+    background:rgba(128,128,128,.14);border:1px solid var(--border);border-radius:6px;
+    padding:1px 8px 1px 6px;white-space:nowrap;}
+  .chip .gi{width:12px;height:12px;flex:none;color:var(--accent);opacity:.95}
+  .chip .bn{min-width:0;overflow:hidden;text-overflow:ellipsis}
+  .chip.wt{color:var(--shell)}
+  .chip.wt .gi{color:var(--shell)}
+  .rightmeta{flex:none;display:flex;align-items:center;gap:8px;}
+  .time{flex:none;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:11px;color:var(--muted);
+    opacity:.7;font-variant-numeric:tabular-nums;}
+  .pill{flex:none;font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
+    padding:2px 8px;border-radius:999px;}
+  .ctl{flex:none;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
+    border-radius:6px;font-size:13px;line-height:1;color:var(--muted);opacity:.45;}
+  .ctl:hover{opacity:1;background:rgba(255,255,255,.10);}
+  .ctl.on{opacity:1;color:var(--accent);}
+  .ctl.flagon{opacity:1;color:var(--flag);}
+  .empty{padding:26px 18px;text-align:center;color:var(--muted);font-size:13px;}
+  .usage{flex:1;min-width:0;justify-content:flex-end;display:flex;align-items:center;gap:7px;font-size:11px;
+    color:var(--muted);font-variant-numeric:tabular-nums;}
+  .usage .useg{display:inline-flex;gap:4px;} .usage .useg b{font-weight:600;}
+  .usage .ok{color:var(--muted);} .usage .warn{color:var(--need);} .usage .crit{color:#ff5f56;}
+  .usage .ureset{color:var(--muted);opacity:.7;margin-left:3px;}
+  .usage .udot{opacity:.45;}
+  .st-running{color:var(--run);background:var(--run-bg)} .dot.running{background:var(--run)}
+  .st-sub{color:var(--sub);background:var(--sub-bg)} .dot.sub{background:var(--sub)}
+  .st-shell{color:var(--shell);background:var(--shell-bg)} .dot.shell{background:var(--shell)}
+  .st-compact{color:var(--compact);background:var(--compact-bg)} .dot.compact{background:var(--compact)}
+  .st-needs{color:var(--need);background:var(--need-bg)} .dot.needs{background:var(--need)}
+  .st-idle{color:var(--idle);background:var(--idle-bg)} .dot.idle{background:var(--idle)}
+  .st-none{color:var(--none);background:var(--none-bg)} .dot.none{background:var(--none)}
+</style></head>
+<body>
+  <div class="wrap">
+    <div class="head">
+      <span class="title">Sessions</span>
+      <span class="toggle" id="toggle"></span>
+      <span class="usage" id="usage"></span>
+      <a class="gear" id="gear" href="wsw://settings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></a>
+      <a class="hide" href="wsw://hide" title="Hide (toggle with &#8984;&#8679;D)">&times;</a>
+    </div>
+    <div class="settings" id="settings" style="display:none"></div>
+    <div class="list" id="list"><div id="content"></div></div>
+  </div>
+  <div class="grip"></div>
+<script>
+  var listEl = document.getElementById('content');
+  var toggleEl = document.getElementById('toggle');
+  var settingsEl = document.getElementById('settings');
+  var gearEl = document.getElementById('gear');
+  var DEFAULT_SETTINGS = {showBranch:true, showTime:true, showUsage:true, showPill:true, compact:false};
+  var SETTING_LABELS = [
+    ['showBranch','Git branch'], ['showTime','Time in state'], ['showUsage','Usage line'],
+    ['showPill','Status pill'], ['compact','Compact rows']];
+  var lastUsage = null, showUsageNow = true;
+  var STATUS = {
+    "running":     {cls:"running", pill:"st-running", label:"running"},
+    "subagents":   {cls:"sub",     pill:"st-sub",     label:"subagents"},
+    "shell":       {cls:"shell",   pill:"st-shell",   label:"shell"},
+    "compacting":  {cls:"compact", pill:"st-compact", label:"compacting"},
+    "needs input": {cls:"needs",   pill:"st-needs",   label:"needs input"},
+    "idle":        {cls:"idle",    pill:"st-idle",    label:"idle"},
+  };
+  function statusOf(s){ return STATUS[s] || {cls:"none", pill:"st-none", label:s||"\u2014"}; }
+  function esc(s){ return String(s).replace(/[&<>"]/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  // Compact "time in current state" from an epoch-seconds activity stamp.
+  function elapsed(sec){
+    var s = Math.floor(Date.now()/1000) - sec;
+    if(s < 10) return 'now';
+    if(s < 60) return s+'s';
+    if(s < 3600) return Math.floor(s/60)+'m';
+    if(s < 86400) return Math.floor(s/3600)+'h';
+    return Math.floor(s/86400)+'d';
+  }
+  var GITICON = '<svg class="gi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>';
+
+  function renderToggle(view){
+    toggleEl.innerHTML =
+      '<a class="'+(view==='workspace'?'active':'')+'" href="wsw://view?set=workspace">Workspace</a>'
+      + '<a class="'+(view==='triage'?'active':'')+'" href="wsw://view?set=triage">Triage</a>';
+  }
+
+  function renderSettings(view, S, open){
+    gearEl.className = 'gear' + (open ? ' on' : '');
+    settingsEl.style.display = open ? '' : 'none';
+    if(!open){ settingsEl.innerHTML = ''; return; }
+    var h = '';
+    for(var i=0;i<SETTING_LABELS.length;i++){
+      var k = SETTING_LABELS[i][0], on = !!S[k];
+      h += '<div class="srow"><span>'+SETTING_LABELS[i][1]+'</span>'
+         + '<a class="sw'+(on?' on':'')+'" href="wsw://set?key='+k+'&val='+(on?0:1)+'" title="'+(on?'on':'off')+'"></a></div>';
+    }
+    h += '<div class="srow"><span>View</span><span class="toggle">'
+       + '<a class="'+(view==='workspace'?'active':'')+'" href="wsw://view?set=workspace">Workspace</a>'
+       + '<a class="'+(view==='triage'?'active':'')+'" href="wsw://view?set=triage">Triage</a></span></div>';
+    settingsEl.innerHTML = h;
+  }
+
+  // rows arrive already ordered by the Lua side; this only draws headers on change.
+  window.setData = function(rows, view, settings, settingsOpen){
+    view = (view === 'triage') ? 'triage' : 'workspace';
+    var S = {};
+    for(var k in DEFAULT_SETTINGS) S[k] = (settings && typeof settings[k] === 'boolean') ? settings[k] : DEFAULT_SETTINGS[k];
+    renderToggle(view);
+    renderSettings(view, S, settingsOpen === true);
+    listEl.className = S.compact ? 'compact' : '';
+    showUsageNow = S.showUsage;
+    window.setUsage(lastUsage);
+    if(!rows || rows.length === 0){
+      listEl.innerHTML = '<div class="empty">No sessions</div>';
+      return;
+    }
+    var html = '', curWs = null, curStatus = null, pinnedHeaderDone = false;
+    for(var i=0;i<rows.length;i++){
+      var e = rows[i];
+      var st = statusOf(e.status);
+      if(view === 'triage'){
+        if(e.status !== curStatus){
+          curStatus = e.status;
+          html += '<div class="group"><span class="dot '+st.cls+'"></span>'+esc(st.label)+'</div>';
+        }
+      } else if(e.pinned){
+        if(!pinnedHeaderDone){
+          html += '<div class="group pinned"><span class="pinicon">&#9733;</span>PINNED</div>';
+          pinnedHeaderDone = true; curWs = null;
+        }
+      } else if(e.ws !== curWs){
+        curWs = e.ws;
+        html += '<div class="group"><span class="wsdot" style="background:'+esc(e.color)+'"></span>'
+              + esc(e.wsName)+'</div>';
+      }
+      // Pinned and triage rows are not under a project header, so show project > tab.
+      var showWs = e.pinned || view === 'triage';
+      var nameHtml = showWs
+        ? '<span class="ws" style="color:'+esc(e.color)+'">'+esc(e.wsName)+'</span>'
+          + ' <span class="sep">&rsaquo;</span> '+esc(e.tabName)
+        : esc(e.tabName);
+      var flagicon = e.flagged ? '<span class="flag">&#9873;</span>' : '';
+      var chip = (S.showBranch && e.branch)
+        ? '<span class="chip'+(e.worktree?' wt':'')+'" title="'+(e.worktree?'worktree: ':'branch: ')+esc(e.branch)+'">'
+          + GITICON + '<span class="bn">'+esc(e.branch)+'</span></span>'
+        : '';
+      var note = (e.flagged && e.note) ? '<span class="note">'+esc(e.note)+'</span>' : '';
+      var time = (S.showTime && e.activity) ? '<span class="time">'+elapsed(e.activity)+'</span>' : '';
+      var tab = encodeURIComponent(e.tabId == null ? '' : e.tabId);
+      html += '<div class="row">'
+            +   '<a class="lead" href="wsw://jump?tab='+tab+'">'
+            +     '<span class="dot '+st.cls+'"></span>'+flagicon
+            +     '<span class="name">'+nameHtml+'</span>'+chip+note+'</a>'
+            +   '<span class="rightmeta">'+time+(S.showPill ? '<span class="pill '+st.pill+'">'+esc(st.label)+'</span>' : '')
+            +     '<a class="ctl'+(e.pinned?' on':'')+'" href="wsw://pin?tab='+tab+'" title="pin">&#9733;</a>'
+            +     '<a class="ctl'+(e.flagged?' flagon':'')+'" href="wsw://flag?tab='+tab+'" title="flag">&#9873;</a>'
+            +   '</span></div>';
+    }
+    listEl.innerHTML = html;
+  };
+  // Subscription usage line (5h session + 7d week). Same formatting as the popup.
+  window.setUsage = function(u){
+    var el = document.getElementById('usage');
+    if(!el) return;
+    lastUsage = u;
+    if(!showUsageNow || !u || !u.session){ el.innerHTML = ''; return; }
+    function fmtReset(iso){
+      if(!iso) return '';
+      var t = new Date(iso).getTime();
+      if(isNaN(t)) return '';
+      var s = Math.max(0, Math.round((t - Date.now())/1000));
+      var d = Math.floor(s/86400), h = Math.floor((s%86400)/3600), m = Math.floor((s%3600)/60);
+      if(d > 0) return d+'d'+h+'h';
+      if(h > 0) return h+'h'+m+'m';
+      if(m > 0) return m+'m';
+      return '<1m';
+    }
+    function clsFor(s){
+      if(s.sev) return s.sev==='critical' ? 'crit' : (s.sev==='warning' ? 'warn' : 'ok');
+      return s.util>=90 ? 'crit' : (s.util>=70 ? 'warn' : 'ok'); // fallback thresholds
+    }
+    function seg(label, s){
+      if(!s || s.util==null) return '';
+      var r = fmtReset(s.resets);
+      return '<span class="useg '+clsFor(s)+'">'+label+' <b>'+Math.round(s.util)+'%</b></span>'
+           + (r ? '<span class="ureset" title="until reset">'+r+'</span>' : '');
+    }
+    var parts = [ seg('5h', u.session), seg('7d', u.week),
+                  seg('opus', u.opus), seg('sonnet', u.sonnet) ];
+    if(u.credits && u.credits.util != null)
+      parts.push('<span class="useg ok">credits <b>'+Math.round(u.credits.util)+'%</b></span>');
+    el.innerHTML = parts.filter(Boolean).join('<span class="udot">&middot;</span>');
+  };
+
+  // Natural height of the panel (header + rows), measured from the inner
+  // content wrapper, not the flex-sized list, so the window can shrink too.
+  window.contentHeight = function(){
+    var head = document.querySelector('.head');
+    var list = document.getElementById('list');
+    var cs = list ? getComputedStyle(list) : null;
+    var pad = cs ? parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) : 0;
+    var set = (settingsEl && settingsEl.style.display !== 'none') ? settingsEl.offsetHeight : 0;
+    return Math.ceil((head ? head.offsetHeight : 0) + set + pad + listEl.scrollHeight);
+  };
+
+  // First paint from embedded data, so it shows before any JS is injected.
+  var DATA = /*__DATA__*/[];
+  var VIEW = /*__VIEW__*/"workspace";
+  window.setData(DATA, VIEW);
+</script>
+</body></html>

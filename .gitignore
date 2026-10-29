@@ -2,3 +2,8 @@
 .codegraph/
 .playwright-mcp/
 __pycache__/
+.superpowers/
+docs/superpowers/
+*-design.md
+*-plan.md
+luac.out

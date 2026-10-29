@@ -104,6 +104,30 @@ own without a dedicated completion hook. The only stale window is a task that
 finishes while you never return to the session; it clears on your next
 interaction.
 
+### The status overlay (second webview)
+
+`init.lua` also builds an always-on panel (`wave-dashboard.html`) listing every
+session, shown only while Wave is frontmost (`refresh` shows/hides it) and toggled
+by `toggleDashboard` (default `Cmd+Shift+D`, never `Ctrl+D` which is terminal EOF).
+It shares the popup's entry loading, status colors, and pin/flag transforms. Notes:
+
+- **Non-activating.** The window is `borderless | nonactivating` so clicks do not
+  steal key focus from Wave. Keep it that way.
+- **Clicks route through `policyCallback`, not a message bridge.** Links in the page
+  are `wsw://<verb>?...` (`jump`, `pin`, `flag`, `view`, `settings`, `set`, `hide`);
+  `overlayPolicy` denies the navigation and calls `overlayDispatch`. Any overlay
+  local referenced before its definition (e.g. `overlayRender`, `hideOverlay`) must
+  be forward-declared or the handlers see nil.
+- **Rendering** is pushed from Lua with `setData(rows, view, settings, settingsOpen)`
+  on a 2s poll (git every 20s, usage every 60s); content height auto-fits (clamped
+  by `clampHeight`) until the user resizes (`userSized`). Drag and the bottom-right
+  resize grip are handled by a Lua mouse tap over the header/grip regions.
+- **Settings toggles** (`overlaySettings`, merged over `OVERLAY_SETTING_DEFAULTS`):
+  `showBranch`, `showTime`, `showUsage`, `showPill` (the dot always shows), and
+  `compact`. The default view (`workspace`/`triage`) is stored beside them. The gear
+  toggles the panel (`O.settingsOpen`, not persisted).
+- Follow-up notes are authored only in the popup; the overlay just toggles the flag.
+
 ### Non-obvious constraints (do not "simplify" these)
 
 - **The webview must never take keyboard focus.** It is a render-only
@@ -115,10 +139,13 @@ interaction.
   `P.dirty`; a separate repeating `renderTimer` (clean context) does the render.
   `togglePin` is the exception: it runs via `hs.timer.doAfter(0, ...)`, outside
   the tap.
-- **Pins and follow-up flags live in JSON files** (`waveswitcher-pins.json`,
-  `waveswitcher-followups.json` under `hs.configdir`), not Wave metadata, because
-  Hammerspoon has no `WAVETERM_JWT` and so cannot use `wsh`. Both are keyed by tab
-  id and share `readJsonMap`/`writeJsonMap`. Pins map `tabId -> true` and float to
+- **Pins, follow-up flags, and overlay state live in `hs.settings`** (keys
+  `waveswitcher.pins`/`.followups`/`.overlay`), never in files under
+  `~/.hammerspoon/`: many configs reload on any write there. Legacy
+  `waveswitcher-*.json` files are imported once (via `readSetting`) and never
+  written or deleted. Not Wave metadata, because
+  Hammerspoon has no `WAVETERM_JWT` and so cannot use `wsh`. Both maps are keyed by tab
+  id. Pins map `tabId -> true` and float to
   the PINNED group; follow-ups map `tabId -> note` (`""` = flagged, no note), do
   NOT reorder the list (inline amber flag marker only), and auto-clear when you
   jump to the session. Because `P.filtered` holds the same entry tables as

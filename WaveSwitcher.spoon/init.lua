@@ -22,7 +22,7 @@ obj.__index = obj
 
 -- Metadata
 obj.name = "WaveSwitcher"
-obj.version = "1.2.1"
+obj.version = "1.3.0"
 obj.author = "mdoyle"
 obj.homepage = "https://github.com/doyled-it/wave-switcher"
 obj.license = "MIT - https://opensource.org/licenses/MIT"
@@ -44,12 +44,18 @@ local WAVE_SETTINGS = os.getenv("HOME") .. "/.config/waveterm/settings.json"
 -- UUIDs into the query, so no escaping is needed.
 local DB_PATH = os.getenv("HOME") .. "/Library/Application Support/waveterm/db/waveterm.db"
 
--- Pins and follow-up flags are switcher concepts, each stored in our own JSON
--- file keyed by tab id. We can't use `wsh` for this: it refuses to run outside a
--- Wave block (no WAVETERM_JWT in Hammerspoon's context). Pins map tabId -> true;
--- follow-ups map tabId -> note string ("" = flagged with no note).
+-- Pins and follow-up flags are switcher concepts, keyed by tab id. We can't use
+-- `wsh` for this: it refuses to run outside a Wave block (no WAVETERM_JWT in
+-- Hammerspoon's context). Pins map tabId -> true; follow-ups map tabId -> note
+-- string ("" = flagged with no note).
+--
+-- Persistence lives in hs.settings, NOT in files under hs.configdir: a common
+-- config watches ~/.hammerspoon/ and reloads on any write there. The legacy JSON
+-- files are read once to migrate existing data, never written or deleted.
 local PIN_FILE      = hs.configdir .. "/waveswitcher-pins.json"
 local FOLLOWUP_FILE = hs.configdir .. "/waveswitcher-followups.json"
+local PIN_KEY, FOLLOWUP_KEY, OVERLAY_KEY =
+  "waveswitcher.pins", "waveswitcher.followups", "waveswitcher.overlay"
 local function readJsonMap(path)
   local f = io.open(path, "r")
   if not f then return {} end
@@ -57,15 +63,119 @@ local function readJsonMap(path)
   local ok, t = pcall(hs.json.decode, s)
   return (ok and type(t) == "table") and t or {}
 end
-local function writeJsonMap(path, t)
-  local f = io.open(path, "w")
-  if not f then return end
-  f:write(hs.json.encode(t)); f:close()
+-- Read a map from hs.settings; when the key is unset, import the legacy JSON file
+-- once and store it so existing data carries over.
+local function readSetting(key, legacyPath)
+  local t = hs.settings.get(key)
+  if type(t) == "table" then return t end
+  t = readJsonMap(legacyPath)
+  hs.settings.set(key, t)
+  return t
 end
-local function readPins()        return readJsonMap(PIN_FILE) end
-local function writePins(t)      writeJsonMap(PIN_FILE, t) end
-local function readFollowups()   return readJsonMap(FOLLOWUP_FILE) end
-local function writeFollowups(t) writeJsonMap(FOLLOWUP_FILE, t) end
+local function readPins()        return readSetting(PIN_KEY, PIN_FILE) end
+local function writePins(t)      hs.settings.set(PIN_KEY, t) end
+local function readFollowups()   return readSetting(FOLLOWUP_KEY, FOLLOWUP_FILE) end
+local function writeFollowups(t) hs.settings.set(FOLLOWUP_KEY, t) end
+
+-- Pure state transforms (no IO) shared by the popup and the status overlay.
+local function pinSet(map, tabId, on)
+  if on then map[tabId] = true else map[tabId] = nil end
+  return map
+end
+local function flagSet(map, tabId, note)
+  map[tabId] = note or ""
+  return map
+end
+local function flagClear(map, tabId)
+  map[tabId] = nil
+  return map
+end
+obj._test = obj._test or {}
+obj._test.pinSet = pinSet
+obj._test.flagSet = flagSet
+obj._test.flagClear = flagClear
+
+-- In-memory list updaters (pure): mutate the entry whose tabId matches; a
+-- missing tabId is a no-op.
+local function applyPinList(list, tabId, on)
+  for _, ent in ipairs(list or {}) do
+    if ent.tabId == tabId then ent.pinned = on end
+  end
+end
+local function applyFlagList(list, tabId, note)
+  for _, ent in ipairs(list or {}) do
+    if ent.tabId == tabId then ent.flagged = true; ent.note = note end
+  end
+end
+local function clearFlagList(list, tabId)
+  for _, ent in ipairs(list or {}) do
+    if ent.tabId == tabId then ent.flagged = false; ent.note = nil end
+  end
+end
+obj._test.applyPinList = applyPinList
+obj._test.applyFlagList = applyFlagList
+obj._test.clearFlagList = clearFlagList
+
+-- Pure view-ordering helpers (no IO). Stable: ties keep input order.
+local STATUS_RANK = {
+  ["needs input"] = 1, running = 2, subagents = 3,
+  shell = 4, compacting = 5, idle = 6,
+}
+local function statusRank(status)
+  return STATUS_RANK[status] or 7
+end
+local function stableSort(entries, key)
+  local dec = {}
+  for i, e in ipairs(entries) do dec[i] = { e = e, k = key(e), i = i } end
+  table.sort(dec, function(a, b)
+    if a.k ~= b.k then return a.k < b.k end
+    return a.i < b.i
+  end)
+  local out = {}
+  for i, d in ipairs(dec) do out[i] = d.e end
+  return out
+end
+local function orderWorkspace(entries)
+  return stableSort(entries, function(e) return e.pinned and 0 or 1 end)
+end
+local function orderTriage(entries)
+  return stableSort(entries, function(e) return statusRank(e.status) end)
+end
+local function sameWs(entries, tabId)
+  local cur, target
+  for _, e in ipairs(entries) do
+    if e.current == true and not cur then cur = e end
+    if e.tabId == tabId and not target then target = e end
+  end
+  return (cur ~= nil and target ~= nil and cur.ws == target.ws) or false
+end
+obj._test.statusRank = statusRank
+obj._test.orderWorkspace = orderWorkspace
+obj._test.orderTriage = orderTriage
+obj._test.sameWs = sameWs
+
+-- Single source of truth for status colors. statusVarsCss() renders them as CSS
+-- custom properties for both the popup and the overlay page.
+local STATUS_COLORS = {
+  ["running"] = "#4a9eff", ["subagents"] = "#a970ff", ["shell"] = "#20c4b0",
+  ["compacting"] = "#e86f9e", ["needs input"] = "#e0b956", ["idle"] = "#58c142",
+}
+local function hexRgba(hex, a)
+  local r, g, b = hex:match("^#(%x%x)(%x%x)(%x%x)$")
+  return string.format("rgba(%d,%d,%d,%s)", tonumber(r, 16), tonumber(g, 16), tonumber(b, 16), a)
+end
+local function statusVarsCss()
+  local C = STATUS_COLORS
+  local function pair(name, status, a)
+    return string.format("--%s:%s;--%s-bg:%s;", name, C[status], name, hexRgba(C[status], a))
+  end
+  return pair("run", "running", ".15") .. pair("sub", "subagents", ".16")
+    .. pair("shell", "shell", ".16") .. pair("compact", "compacting", ".16")
+    .. pair("need", "needs input", ".16") .. pair("idle", "idle", ".16")
+    .. "--none:#6b7280;--none-bg:rgba(120,130,140,.14);"
+end
+obj._test.STATUS_COLORS = STATUS_COLORS
+obj._test.statusVarsCss = statusVarsCss
 local function sqlite1(query)
   local out = hs.execute("/usr/bin/sqlite3 'file:" .. DB_PATH .. "?mode=ro' \"" .. query .. "\"")
   if not out then return nil end
@@ -149,11 +259,9 @@ local TOP_FRAC = 0.15
 -- on reopen; refreshed in the background each open.
 local gitCache = {}
 
-local function loadEntries()
-  local out, ok = hs.execute("'" .. LIST_SCRIPT .. "'", true) -- login shell (PATH)
-  if not ok or not out or out == "" then return {} end
-  local data = hs.json.decode(out)
-  if type(data) ~= "table" then return {} end
+-- Turn the decoded session-list JSON (a Lua array) into entries, merging pins,
+-- followups and the git cache. Shared by the popup (loadEntries) and the overlay.
+local function buildEntries(data)
   local pins = readPins()
   local followups = readFollowups()
   local entries = {}
@@ -178,6 +286,14 @@ local function loadEntries()
     }
   end
   return entries
+end
+
+local function loadEntries()
+  local out, ok = hs.execute("'" .. LIST_SCRIPT .. "'", true) -- login shell (PATH)
+  if not ok or not out or out == "" then return {} end
+  local data = hs.json.decode(out)
+  if type(data) ~= "table" then return {} end
+  return buildEntries(data)
 end
 
 --------------------------------------------------------------------------------
@@ -219,10 +335,7 @@ local HTML = [==[
     color-scheme: dark;
     --bg:#181a1e; --text:#f2f3f5; --muted:#9aa1ac; --dim:#dfe2e7;
     --border:rgba(255,255,255,.10); --accent:#4a9eff; --sel:rgba(74,158,255,.16); --flag:#ffb454;
-    --run:#4a9eff; --sub:#a970ff; --shell:#20c4b0; --compact:#e86f9e; --need:#e0b956; --idle:#58c142; --none:#6b7280;
-    --run-bg:rgba(74,158,255,.15); --sub-bg:rgba(169,112,255,.16); --shell-bg:rgba(32,196,176,.16);
-    --compact-bg:rgba(232,111,158,.16); --need-bg:rgba(224,185,86,.16);
-    --idle-bg:rgba(88,193,66,.16); --none-bg:rgba(120,130,140,.14);
+    /*__STATUSVARS__*/
     --shadow:0 24px 70px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.4);
     --fun-mono:"Space Mono",ui-monospace,"SF Mono",Menlo,monospace;
     /*__THEME__*/
@@ -456,6 +569,25 @@ local hotkey, watcher
 local lastUsage = nil -- cached {session, week, sessionResets, weekResets}
 local P = { entries = {}, filtered = {}, query = "", sel = 1, dirty = false }
 local close, selectCurrent, open, togglePin, toggleFollowup -- forward decls
+local O -- overlay state; assigned in the overlay section below
+
+-- IO wrappers shared by the popup and the overlay: persist to the state file,
+-- then update every loaded in-memory list so both UIs stay in sync.
+local function applyPin(tabId, on)
+  writePins(pinSet(readPins(), tabId, on))
+  applyPinList(P.entries, tabId, on)
+  if O then applyPinList(O.entries, tabId, on) end
+end
+local function applyFlag(tabId, note)
+  writeFollowups(flagSet(readFollowups(), tabId, note))
+  applyFlagList(P.entries, tabId, note)
+  if O then applyFlagList(O.entries, tabId, note) end
+end
+local function clearFlag(tabId)
+  writeFollowups(flagClear(readFollowups(), tabId))
+  clearFlagList(P.entries, tabId)
+  if O then clearFlagList(O.entries, tabId) end
+end
 
 -- Encode a Lua string as a JS string literal. (hs.json.encode errors on a bare
 -- string — it only accepts tables — so we can't use it for the query.)
@@ -469,7 +601,7 @@ local function rowsJson(list)
   if #list == 0 then return "[]" end -- hs.json.encode({}) yields "{}", not "[]"
   local rows = {}
   for _, e in ipairs(list) do
-    rows[#rows + 1] = { ws = e.ws, wsName = e.wsName, tabName = e.tabName,
+    rows[#rows + 1] = { ws = e.ws, tabId = e.tabId, wsName = e.wsName, tabName = e.tabName,
                         status = e.status, color = e.color, pinned = e.pinned,
                         flagged = e.flagged, note = e.note,
                         branch = e.branch, worktree = e.worktree, activity = e.activity }
@@ -568,12 +700,7 @@ togglePin = function()
   local e = P.filtered[P.sel]
   if not (e and e.tabId) then return end
   local newPinned = not e.pinned
-  local pins = readPins()
-  pins[e.tabId] = newPinned or nil
-  writePins(pins)
-  for _, ent in ipairs(P.entries) do
-    if ent.tabId == e.tabId then ent.pinned = newPinned end
-  end
+  applyPin(e.tabId, newPinned)
   local keep = e.tabId
   refilter()
   for i, ent in ipairs(P.filtered) do
@@ -590,14 +717,11 @@ end
 toggleFollowup = function()
   local e = P.filtered[P.sel]
   if not (e and e.tabId) then return end
-  local fups = readFollowups()
   if e.flagged then
-    fups[e.tabId] = nil; writeFollowups(fups)
-    e.flagged = false; e.note = nil
+    clearFlag(e.tabId)
     renderNow()
   else
-    fups[e.tabId] = ""; writeFollowups(fups)
-    e.flagged = true; e.note = ""
+    applyFlag(e.tabId, "")
     P.noteMode = true; P.noteTabId = e.tabId; P.noteText = ""
     renderNow()
   end
@@ -700,6 +824,7 @@ open = function()
   html = html:gsub("/%*__USAGE__%*/null",
     function() return lastUsage and hs.json.encode(lastUsage) or "null" end)
   html = html:gsub("/%*__THEME__%*/", function() return themeCss() end)
+  html = html:gsub("/%*__STATUSVARS__%*/", function() return statusVarsCss() end)
 
   -- render-only webview: no allowTextEntry, never focused -> Wave stays key
   webview = hs.webview.new(rect, { developerExtrasEnabled = false })
@@ -751,11 +876,7 @@ selectCurrent = function()
   local e = P.filtered[P.sel]
   local sameWs = e and P.activeWs ~= nil and e.ws == P.activeWs
   -- Jumping to a flagged session clears its follow-up: you've returned to it.
-  if e and e.flagged and e.tabId then
-    local fups = readFollowups()
-    fups[e.tabId] = nil
-    writeFollowups(fups)
-  end
+  if e and e.flagged and e.tabId then clearFlag(e.tabId) end
   close()
   if e then switchTo(e.wsName, e.tab, sameWs) end
 end
@@ -769,16 +890,464 @@ close = function()
   if hotkey and front and front:bundleID() == WAVE_BUNDLE then hotkey:enable() end
 end
 
--- Enable the hotkey only while Wave Terminal is frontmost.
+--------------------------------------------------------------------------------
+-- Status overlay: a non-activating panel listing every session, shown while Wave
+-- is frontmost. All hs.* calls live inside functions (keeps init.lua loadable
+-- under the offline lua test harness).
+--------------------------------------------------------------------------------
+
+local OVERLAY_STATE_FILE = hs.configdir .. "/waveswitcher-overlay.json"
+local OVERLAY_HEADER_H = 34 -- draggable strip at the top of the panel
+local OVERLAY_MARGIN = 16
+local OVERLAY_W, OVERLAY_H = 360, 560
+local OVERLAY_MIN_H = 160
+local OVERLAY_GRIP = 18 -- bottom-right resize corner (px square)
+
+-- entries: latest rows; pollTimer/gitTimer/usageTimer run only while visible.
+O = { webview = nil, enabled = true, view = "workspace", settings = nil, settingsOpen = false, frame = nil, dragTap = nil, resizeTap = nil, userSized = false,
+            entries = {}, pollTimer = nil, gitTimer = nil, usageTimer = nil }
+local toggleHotkey = nil
+-- Forward declarations: any overlay local referenced above its definition MUST be
+-- declared here and defined by assignment (NAME = function), never `local function`
+-- (a late `local function` leaves earlier closures bound to a nil global).
+local overlayRender
+local hideOverlay
+local stopResizeTap
+
+local function defaultOverlayFrame()
+  local scr = hs.screen.mainScreen():frame()
+  return {
+    x = scr.x + scr.w - OVERLAY_W - OVERLAY_MARGIN,
+    y = scr.y + OVERLAY_MARGIN,
+    w = OVERLAY_W, h = OVERLAY_H,
+  }
+end
+
+-- Pure: the five boolean display settings merged over defaults. Stored booleans
+-- win (explicit false is kept); anything missing or non-boolean gets the default.
+local OVERLAY_SETTING_DEFAULTS = {
+  showBranch = true, showTime = true, showUsage = true, showPill = true, compact = false,
+}
+local function overlaySettings(stored)
+  local out = {}
+  for k, d in pairs(OVERLAY_SETTING_DEFAULTS) do
+    local v
+    if type(stored) == "table" then v = stored[k] end
+    if type(v) == "boolean" then out[k] = v else out[k] = d end
+  end
+  return out
+end
+
+local function loadOverlayState()
+  local t = readSetting(OVERLAY_KEY, OVERLAY_STATE_FILE)
+  O.enabled = (t.enabled ~= false)
+  O.view = (t.view == "triage") and "triage" or "workspace"
+  O.userSized = (t.userSized == true)
+  O.settings = overlaySettings(t.settings)
+  if type(t.x) == "number" and type(t.y) == "number"
+     and type(t.w) == "number" and type(t.h) == "number" and t.w > 0 and t.h > 0 then
+    O.frame = { x = t.x, y = t.y, w = t.w, h = t.h }
+  else
+    O.frame = defaultOverlayFrame()
+  end
+end
+
+local function saveOverlayState()
+  local f = O.frame or {}
+  hs.settings.set(OVERLAY_KEY, {
+    x = f.x, y = f.y, w = f.w, h = f.h, enabled = O.enabled, view = O.view,
+    userSized = O.userSized == true,
+    settings = overlaySettings(O.settings),
+  })
+end
+
+-- Pure: content height clamped to [OVERLAY_MIN_H, 70% of screen height].
+local function clampHeight(content, screenH)
+  local lo = OVERLAY_MIN_H
+  local hi = math.max(lo, math.floor((tonumber(screenH) or 0) * 0.7))
+  local h = tonumber(content) or lo
+  return math.max(lo, math.min(hi, math.floor(h)))
+end
+obj._test = obj._test or {}
+obj._test.clampHeight = clampHeight
+obj._test.overlaySettings = overlaySettings
+
+-- Decode %XX and + in a query value.
+local function urlDecode(v)
+  v = (v or ""):gsub("+", " ")
+  return (v:gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end))
+end
+
+local function overlayDispatch(verb, params)
+  local tabId, set = params.tab, params.set
+  if verb == "view" then
+    if set == "workspace" or set == "triage" then
+      O.view = set
+      saveOverlayState()
+      overlayRender()
+    end
+    return
+  end
+  if verb == "settings" then
+    O.settingsOpen = not O.settingsOpen
+    overlayRender()
+    return
+  end
+  if verb == "set" then
+    local k = params.key
+    if OVERLAY_SETTING_DEFAULTS[k] ~= nil and (params.val == "0" or params.val == "1") then
+      O.settings = overlaySettings(O.settings)
+      O.settings[k] = (params.val == "1")
+      saveOverlayState()
+      overlayRender()
+    end
+    return
+  end
+  if verb == "hide" then
+    O.enabled = false
+    saveOverlayState()
+    hideOverlay()
+    return
+  end
+  if not tabId then return end
+  local e
+  for _, ent in ipairs(O.entries) do
+    if ent.tabId == tabId then e = ent; break end
+  end
+  if not e then return end
+  if verb == "jump" then
+    clearFlag(tabId)
+    local app = hs.application.get(WAVE_BUNDLE)
+    if app then app:activate(true) end
+    switchTo(e.wsName, e.tab, sameWs(O.entries, tabId))
+  elseif verb == "pin" then
+    applyPin(tabId, not e.pinned)
+    overlayRender()
+  elseif verb == "flag" then
+    if e.flagged then clearFlag(tabId) else applyFlag(tabId, "") end
+    overlayRender()
+  end
+end
+
+-- Intercepts wsw:// navigations (denied), allows everything else (initial load).
+local function overlayPolicy(action, webview, details)
+  local url
+  for _, a in ipairs({ webview, details }) do
+    if type(a) == "string" then url = url or a
+    elseif type(a) == "table" then
+      local r = a.request
+      url = url or (type(r) == "table" and (r.URL or r.url)) or a.URL or a.url
+      if type(url) == "table" then url = url.absoluteString or url.url end
+    end
+  end
+  if type(url) ~= "string" or url:sub(1, 6) ~= "wsw://" or action ~= "navigationAction" then
+    return true
+  end
+  pcall(function()
+    local rest = url:sub(7)
+    local verb, query = rest:match("^([^?#/]*)%??([^#]*)")
+    local params = {}
+    for k, v in (query or ""):gmatch("([^&=]+)=?([^&]*)") do
+      params[urlDecode(k)] = urlDecode(v)
+    end
+    overlayDispatch(verb, params)
+  end)
+  return false
+end
+
+local function buildOverlayWebview()
+  local html = readFileText(scriptDir .. "wave-dashboard.html") or ""
+  html = html:gsub("/%*__STATUSVARS__%*/", function() return statusVarsCss() end)
+  html = html:gsub("/%*__THEME__%*/", function() return themeCss() end)
+  html = html:gsub('/%*__VIEW__%*/"workspace"', function() return '"' .. O.view .. '"' end)
+  -- /*__DATA__*/[] stays [] here; live rows are pushed by the poll timer.
+  local wv = hs.webview.new(O.frame, { developerExtrasEnabled = false })
+  -- nonactivating is load-bearing: the panel can be clicked without stealing
+  -- key focus from Wave.
+  wv:windowStyle(hs.webview.windowMasks.borderless | hs.webview.windowMasks.nonactivating)
+  wv:level(hs.canvas.windowLevels.popUpMenu)
+  wv:transparent(true)
+  wv:shadow(true)
+  wv:policyCallback(overlayPolicy)
+  wv:html(html)
+  O.webview = wv
+end
+
+-- Header-strip drag. SAFETY: this tap NEVER consumes an event (every path returns
+-- false), so clicks in the body or anywhere else always reach their target. It
+-- only observes, and moves the panel while a header drag is in progress.
+local function startDragTap()
+  if O.dragTap then
+    if not O.dragTap:isEnabled() then O.dragTap:start() end
+    return
+  end
+  local types = hs.eventtap.event.types
+  local dragging, offX, offY = false, 0, 0
+  O.dragTap = hs.eventtap.new(
+    { types.leftMouseDown, types.leftMouseDragged, types.leftMouseUp },
+    function(e)
+      local ok = pcall(function()
+        local t = e:getType()
+        if t == types.leftMouseDown then
+          dragging = false
+          if not O.webview then return end
+          local p = hs.mouse.absolutePosition()
+          local f = O.webview:frame()
+          if p.x >= f.x and p.x <= f.x + f.w
+             and p.y >= f.y and p.y <= f.y + OVERLAY_HEADER_H then
+            dragging, offX, offY = true, p.x - f.x, p.y - f.y
+          end
+        elseif t == types.leftMouseDragged then
+          if dragging and O.webview then
+            local p = hs.mouse.absolutePosition()
+            local f = O.webview:frame()
+            O.frame = { x = p.x - offX, y = p.y - offY, w = f.w, h = f.h }
+            O.webview:frame(O.frame)
+          end
+        elseif t == types.leftMouseUp then
+          if dragging then
+            dragging = false
+            saveOverlayState()
+          end
+        end
+      end)
+      if not ok then dragging = false end
+      return false -- never consume
+    end)
+  O.dragTap:start()
+end
+
+local function stopDragTap()
+  if O.dragTap then O.dragTap:stop(); O.dragTap = nil end
+end
+
+-- Bottom-right corner resize. SAFETY: same contract as the drag tap. Every path
+-- returns false (never consumes); it acts only when a mouse-down lands inside the
+-- OVERLAY_GRIP corner square, and only until that gesture's mouse-up.
+local function startResizeTap()
+  if O.resizeTap then
+    if not O.resizeTap:isEnabled() then O.resizeTap:start() end
+    return
+  end
+  local types = hs.eventtap.event.types
+  local resizing, startP, startF = false, nil, nil
+  O.resizeTap = hs.eventtap.new(
+    { types.leftMouseDown, types.leftMouseDragged, types.leftMouseUp },
+    function(e)
+      local ok = pcall(function()
+        local t = e:getType()
+        if t == types.leftMouseDown then
+          resizing = false
+          if not O.webview then return end
+          local p = hs.mouse.absolutePosition()
+          local f = O.webview:frame()
+          if p.x >= f.x + f.w - OVERLAY_GRIP and p.x <= f.x + f.w
+             and p.y >= f.y + f.h - OVERLAY_GRIP and p.y <= f.y + f.h then
+            resizing, startP, startF = true, p, f
+          end
+        elseif t == types.leftMouseDragged then
+          if resizing and O.webview then
+            local p = hs.mouse.absolutePosition()
+            O.frame = {
+              x = startF.x, y = startF.y,
+              w = math.max(260, startF.w + (p.x - startP.x)),
+              h = math.max(OVERLAY_MIN_H, startF.h + (p.y - startP.y)),
+            }
+            O.webview:frame(O.frame)
+          end
+        elseif t == types.leftMouseUp then
+          if resizing then
+            resizing = false
+            O.userSized = true -- stop auto-fitting from now on
+            saveOverlayState()
+          end
+        end
+      end)
+      if not ok then resizing = false end
+      return false -- never consume
+    end)
+  O.resizeTap:start()
+end
+
+stopResizeTap = function()
+  if O.resizeTap then O.resizeTap:stop(); O.resizeTap = nil end
+end
+
+-- Fit the panel height to its content (until the user resizes manually). The
+-- page reports its natural height; Lua clamps it and resizes. Timer/callback
+-- context only, never an eventtap.
+local function overlayAutoFit()
+  if O.userSized or not O.webview then return end
+  O.webview:evaluateJavaScript("window.contentHeight ? window.contentHeight() : 0",
+    function(h)
+      pcall(function()
+        if not O.webview or O.userSized or type(h) ~= "number" or h <= 0 then return end
+        local scr = hs.screen.mainScreen():frame()
+        local f = O.webview:frame()
+        local nh = clampHeight(h, scr.h)
+        if math.abs(nh - f.h) >= 2 then
+          O.frame = { x = f.x, y = f.y, w = f.w, h = nh }
+          O.webview:frame(O.frame)
+        end
+      end)
+    end)
+end
+
+-- Order by the current view and push rows to the page. Called from timer/task
+-- callbacks only (never from an eventtap).
+overlayRender = function()
+  if not O.webview then return end
+  local list = (O.view == "triage") and orderTriage(O.entries) or orderWorkspace(O.entries)
+  local js = "window.setData(" .. rowsJson(list) .. "," .. jsStr(O.view) .. ","
+    .. hs.json.encode(overlaySettings(O.settings)) .. "," .. tostring(O.settingsOpen == true) .. ")"
+  O.webview:evaluateJavaScript(js, function() overlayAutoFit() end)
+end
+
+-- Async (hs.task) so the sqlite read never stalls the main thread. At most one
+-- reload is in flight at a time.
+local reloading = false
+local function overlayReload()
+  if not O.webview or reloading then return end
+  reloading = true
+  local task = hs.task.new("/bin/zsh", function(_, out)
+    reloading = false
+    if not O.webview or not out or out == "" then return end
+    local ok, data = pcall(hs.json.decode, out)
+    if not ok or type(data) ~= "table" then return end
+    O.entries = buildEntries(data)
+    overlayRender()
+  end, { "-lc", "'" .. LIST_SCRIPT .. "'" })
+  if task then
+    if not task:start() then reloading = false end
+  else
+    reloading = false
+  end
+end
+
+local gitRunning = false
+local function overlayRefreshGit()
+  if not O.webview or gitRunning then return end
+  local seen, cwds = {}, {}
+  for _, e in ipairs(O.entries) do
+    if e.cwd and not seen[e.cwd] then seen[e.cwd] = true; cwds[#cwds + 1] = e.cwd end
+  end
+  if #cwds == 0 then return end
+  gitRunning = true
+  local task = hs.task.new(GITINFO_SCRIPT, function(_, out)
+    gitRunning = false
+    if not O.webview or not out or out == "" then return end
+    local ok, arr = pcall(hs.json.decode, out)
+    if not ok or type(arr) ~= "table" then return end
+    for _, g in ipairs(arr) do
+      if g.cwd then gitCache[g.cwd] = { branch = g.branch, worktree = g.worktree == true } end
+    end
+    for _, e in ipairs(O.entries) do
+      local gi = e.cwd and gitCache[e.cwd] or nil
+      if gi then e.branch = gi.branch; e.worktree = gi.worktree end
+    end
+    overlayRender()
+  end)
+  if task then
+    task:setInput(table.concat(cwds, "\n") .. "\n")
+    if not task:start() then gitRunning = false end
+  else
+    gitRunning = false
+  end
+end
+
+local function overlayPushUsage()
+  if not O.webview then return end
+  local js = "window.setUsage(" .. (lastUsage and hs.json.encode(lastUsage) or "null") .. ")"
+  O.webview:evaluateJavaScript(js, function() end)
+end
+
+local function overlayRefreshUsage()
+  if not O.webview then return end
+  local task = hs.task.new("/bin/zsh", function(_, out)
+    if not out or out == "" then return end
+    local ok, u = pcall(hs.json.decode, out)
+    if ok and type(u) == "table" then
+      lastUsage = u
+      overlayPushUsage()
+      pushUsage() -- keep the popup's footer in step too (no-op when closed)
+    end
+  end, { "-lc", "'" .. USAGE_SCRIPT .. "'" })
+  if task then task:start() end
+end
+
+local function startOverlayTimers()
+  if not O.pollTimer then O.pollTimer = hs.timer.doEvery(2, overlayReload) end
+  if not O.gitTimer then O.gitTimer = hs.timer.doEvery(20, overlayRefreshGit) end
+  if not O.usageTimer then O.usageTimer = hs.timer.doEvery(60, overlayRefreshUsage) end
+end
+
+local function stopOverlayTimers()
+  for _, k in ipairs({ "pollTimer", "gitTimer", "usageTimer" }) do
+    if O[k] then O[k]:stop(); O[k] = nil end
+  end
+end
+
+-- Pure: does `frame` overlap any of `screens` (list of {x,y,w,h})?
+local function frameVisible(frame, screens)
+  if type(frame) ~= "table" then return false end
+  for _, s in ipairs(screens or {}) do
+    if frame.x < s.x + s.w and frame.x + frame.w > s.x
+       and frame.y < s.y + s.h and frame.y + frame.h > s.y then
+      return true
+    end
+  end
+  return false
+end
+obj._test.frameVisible = frameVisible
+
+local function showOverlay()
+  if not O.frame then O.frame = defaultOverlayFrame() end
+  -- A restored frame can be off every screen after a monitor change: recover.
+  local screens = {}
+  for _, sc in ipairs(hs.screen.allScreens()) do screens[#screens + 1] = sc:frame() end
+  if #screens > 0 and not frameVisible(O.frame, screens) then
+    O.frame = defaultOverlayFrame()
+    if O.webview then O.webview:frame(O.frame) end
+  end
+  local fresh = O.pollTimer == nil
+  if not O.webview then buildOverlayWebview() end
+  O.webview:show()
+  startDragTap()
+  startResizeTap()
+  startOverlayTimers()
+  if fresh then -- first show after being hidden: prime immediately
+    overlayPushUsage()
+    overlayReload()
+    overlayRefreshGit()
+    overlayRefreshUsage()
+  end
+end
+
+hideOverlay = function()
+  stopOverlayTimers()
+  if O.webview then O.webview:hide() end
+  stopDragTap()
+  stopResizeTap()
+end
+
+-- Enable the hotkeys and show/hide the overlay based on whether Wave is frontmost.
 local function refresh()
+  local front = hs.application.frontmostApplication()
+  local waveFront = front and front:bundleID() == WAVE_BUNDLE
+  -- The overlay coexists with the popup, so it is managed regardless of `webview`.
+  if waveFront and O.enabled then showOverlay() else hideOverlay() end
+  if toggleHotkey then
+    if waveFront then toggleHotkey:enable() else toggleHotkey:disable() end
+  end
   if not hotkey then return end
   if webview then return end -- don't fight the key tap while the picker is open
-  local front = hs.application.frontmostApplication()
-  if front and front:bundleID() == WAVE_BUNDLE then
-    hotkey:enable()
-  else
-    hotkey:disable()
-  end
+  if waveFront then hotkey:enable() else hotkey:disable() end
+end
+
+local function toggleOverlay()
+  O.enabled = not O.enabled
+  saveOverlayState()
+  refresh()
 end
 
 --------------------------------------------------------------------------------
@@ -790,13 +1359,15 @@ end
 --- Binds the hotkey that opens the switcher.
 ---
 --- Parameters:
----  * mapping - a table with an `open` key, e.g.
----              `{ open = {{"ctrl"}, "k"} }`
+---  * mapping - a table with an `open` key and optionally `toggleDashboard`
+---              (default Cmd+Shift+D), e.g.
+---              `{ open = {{"ctrl"}, "k"}, toggleDashboard = {{"cmd","shift"}, "d"} }`
 ---
 --- Returns:
 ---  * The WaveSwitcher object
 function obj:bindHotkeys(mapping)
   if mapping and mapping.open then self._hotkeySpec = mapping.open end
+  if mapping and mapping.toggleDashboard then self._toggleSpec = mapping.toggleDashboard end
   return self
 end
 
@@ -814,6 +1385,9 @@ function obj:start()
   hotkey = hs.hotkey.new(spec[1], spec[2], function()
     if webview then close() else open() end
   end)
+  local tspec = self._toggleSpec or { { "cmd", "shift" }, "d" }
+  toggleHotkey = hs.hotkey.new(tspec[1], tspec[2], toggleOverlay)
+  loadOverlayState()
   watcher = hs.application.watcher.new(refresh)
   watcher:start()
   refresh()
@@ -852,6 +1426,11 @@ end
 function obj:stop()
   if watcher then watcher:stop(); watcher = nil end
   if hotkey then hotkey:disable(); hotkey = nil end
+  if toggleHotkey then toggleHotkey:disable(); toggleHotkey = nil end
+  stopDragTap()
+  stopResizeTap()
+  stopOverlayTimers()
+  if O.webview then O.webview:delete(); O.webview = nil end
   close()
   self._started = false
   return self

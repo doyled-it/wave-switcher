@@ -13,6 +13,7 @@ Spotlight, Raycast, and `agent-view`.
 - **Navigate** — `↑`/`↓`, `Ctrl+n`/`Ctrl+p`, or `j`/`k` (when the search box is empty). Wraps around top↔bottom.
 - **Pin** — `Tab` pins/unpins the selected session; pinned ones float to a **PINNED** group at the top (persists per tab), so the sessions you're bouncing between stay one keypress away.
 - **Follow-up** — `Ctrl+F` flags the selected session for follow-up, with an optional short note (type it right after flagging, `Enter` to save). Flagged rows get an amber flag marker and their note shown inline, so an idle session you need to circle back to stays easy to spot. Jumping to a flagged session clears its flag; `Ctrl+F` again also clears it.
+- **Status overlay**: an always-on floating panel listing every session across every workspace while Wave is in front (`Cmd+Shift+D` toggles it). See [Status overlay](#status-overlay).
 - **Jump** — `Enter`. **Dismiss** — `Esc` or click outside.
 - **Usage** — the footer shows your Claude subscription usage (5-hour **session** % and 7-day **week** %), colored as it climbs, so you can see how close you are to your limits without leaving the picker.
 - **Live status** — each tab shows `running` / `subagents` / `shell` /
@@ -72,12 +73,56 @@ spoon.WaveSwitcher:start()
 
 Reload Hammerspoon (menu-bar icon → *Reload Config*).
 
+## Status overlay
+
+Besides the Ctrl+K popup, WaveSwitcher shows an always-on **status overlay**: a
+small floating panel (a second `hs.webview`) listing every session across every
+workspace. It is visible while Wave Terminal is the frontmost app and hidden
+otherwise. It never takes keyboard focus, so Wave stays the key window.
+
+- **Toggle**: `Cmd+Shift+D` (configurable, see [Configuration](#configuration)), or
+  the **×** button in the panel header hides it (re-show it with the toggle
+  hotkey). It is deliberately not `Ctrl+D`, which is
+  terminal EOF.
+- **Same signals as the popup**: status colors, branch chips, time in state, the
+  usage line, pins and follow-up flags.
+- **Click a row** to jump to that session (keyboard focus stays with Wave). Each
+  row also has small **pin** and **flag** toggles that stay in sync with the Ctrl+K
+  popup. Follow-up notes are written in the popup, not the overlay.
+- **View toggle**: group by **workspace** or by **status** (triage).
+- **Move and resize**: drag the header to move it, drag the bottom-right grip to
+  resize. Position and size persist.
+- **Settings**: the gear icon in the header opens a panel with persisted toggles:
+  git branch chip, time in state, usage line, status label pill (the colored dot
+  always shows), compact rows, and the default view (workspace or triage).
+
+State (overlay position, size and settings, plus pins and follow-ups) is stored in
+Hammerspoon's own settings store (`hs.settings`), not in files under
+`~/.hammerspoon/`. Many Hammerspoon configs auto-reload on any file change there,
+so writing state files would reload your config on every drag or pin. Existing
+`waveswitcher-pins.json`, `waveswitcher-followups.json` and
+`waveswitcher-overlay.json` files are migrated
+automatically on first use and then left in place (they are no longer written).
+
+No extra setup is needed: the overlay ships in the Spoon and appears when Wave is
+focused.
+
 ## Configuration
 
 Change the hotkey by editing the `bindHotkeys` line, e.g. `Cmd+K`:
 
 ```lua
 spoon.WaveSwitcher:bindHotkeys({ open = {{"cmd"}, "k"} })
+```
+
+The status overlay hotkey defaults to `Cmd+Shift+D`. Change it with the
+`toggleDashboard` key (both keys can be given together):
+
+```lua
+spoon.WaveSwitcher:bindHotkeys({
+  open = {{"ctrl"}, "k"},
+  toggleDashboard = {{"cmd", "shift"}, "d"},
+})
 ```
 
 **Theme** — the picker matches your Wave terminal theme automatically. If you've
