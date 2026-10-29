@@ -108,4 +108,16 @@ do
   eq("clampHeight non-number content", T.clampHeight(nil, 1000), 160)
 end
 
+do
+  local d = T.overlaySettings(nil)
+  eq("overlaySettings nil -> defaults", d,
+    { showBranch = true, showTime = true, showUsage = true, showPill = true, compact = false })
+  eq("overlaySettings partial override", T.overlaySettings({ compact = true, showTime = false }),
+    { showBranch = true, showTime = false, showUsage = true, showPill = true, compact = true })
+  eq("overlaySettings explicit false kept", T.overlaySettings({ showBranch = false }).showBranch, false)
+  eq("overlaySettings ignores unknown/non-boolean",
+    T.overlaySettings({ bogus = true, showPill = "yes" }),
+    { showBranch = true, showTime = true, showUsage = true, showPill = true, compact = false })
+end
+
 if bad == 0 and T then print("ALL PASS") end

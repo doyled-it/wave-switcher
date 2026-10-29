@@ -904,7 +904,7 @@ local OVERLAY_MIN_H = 160
 local OVERLAY_GRIP = 18 -- bottom-right resize corner (px square)
 
 -- entries: latest rows; pollTimer/gitTimer/usageTimer run only while visible.
-O = { webview = nil, enabled = true, view = "workspace", frame = nil, dragTap = nil, resizeTap = nil, userSized = false,
+O = { webview = nil, enabled = true, view = "workspace", settings = nil, settingsOpen = false, frame = nil, dragTap = nil, resizeTap = nil, userSized = false,
             entries = {}, pollTimer = nil, gitTimer = nil, usageTimer = nil }
 local toggleHotkey = nil
 -- Forward declarations: any overlay local referenced above its definition MUST be
@@ -923,11 +923,27 @@ local function defaultOverlayFrame()
   }
 end
 
+-- Pure: the five boolean display settings merged over defaults. Stored booleans
+-- win (explicit false is kept); anything missing or non-boolean gets the default.
+local OVERLAY_SETTING_DEFAULTS = {
+  showBranch = true, showTime = true, showUsage = true, showPill = true, compact = false,
+}
+local function overlaySettings(stored)
+  local out = {}
+  for k, d in pairs(OVERLAY_SETTING_DEFAULTS) do
+    local v
+    if type(stored) == "table" then v = stored[k] end
+    if type(v) == "boolean" then out[k] = v else out[k] = d end
+  end
+  return out
+end
+
 local function loadOverlayState()
   local t = readSetting(OVERLAY_KEY, OVERLAY_STATE_FILE)
   O.enabled = (t.enabled ~= false)
   O.view = (t.view == "triage") and "triage" or "workspace"
   O.userSized = (t.userSized == true)
+  O.settings = overlaySettings(t.settings)
   if type(t.x) == "number" and type(t.y) == "number"
      and type(t.w) == "number" and type(t.h) == "number" and t.w > 0 and t.h > 0 then
     O.frame = { x = t.x, y = t.y, w = t.w, h = t.h }
@@ -941,6 +957,7 @@ local function saveOverlayState()
   hs.settings.set(OVERLAY_KEY, {
     x = f.x, y = f.y, w = f.w, h = f.h, enabled = O.enabled, view = O.view,
     userSized = O.userSized == true,
+    settings = overlaySettings(O.settings),
   })
 end
 
@@ -953,6 +970,7 @@ local function clampHeight(content, screenH)
 end
 obj._test = obj._test or {}
 obj._test.clampHeight = clampHeight
+obj._test.overlaySettings = overlaySettings
 
 -- Decode %XX and + in a query value.
 local function urlDecode(v)
@@ -965,6 +983,21 @@ local function overlayDispatch(verb, params)
   if verb == "view" then
     if set == "workspace" or set == "triage" then
       O.view = set
+      saveOverlayState()
+      overlayRender()
+    end
+    return
+  end
+  if verb == "settings" then
+    O.settingsOpen = not O.settingsOpen
+    overlayRender()
+    return
+  end
+  if verb == "set" then
+    local k = params.key
+    if OVERLAY_SETTING_DEFAULTS[k] ~= nil and (params.val == "0" or params.val == "1") then
+      O.settings = overlaySettings(O.settings)
+      O.settings[k] = (params.val == "1")
       saveOverlayState()
       overlayRender()
     end
@@ -1165,7 +1198,8 @@ end
 overlayRender = function()
   if not O.webview then return end
   local list = (O.view == "triage") and orderTriage(O.entries) or orderWorkspace(O.entries)
-  local js = "window.setData(" .. rowsJson(list) .. "," .. jsStr(O.view) .. ")"
+  local js = "window.setData(" .. rowsJson(list) .. "," .. jsStr(O.view) .. ","
+    .. hs.json.encode(overlaySettings(O.settings)) .. "," .. tostring(O.settingsOpen == true) .. ")"
   O.webview:evaluateJavaScript(js, function() overlayAutoFit() end)
 end
 

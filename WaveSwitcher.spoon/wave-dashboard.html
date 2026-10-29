@@ -21,6 +21,18 @@
   .hide{flex:none;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
     border-radius:6px;font-size:16px;line-height:1;color:var(--muted);opacity:.6;}
   .hide:hover{opacity:1;background:rgba(255,255,255,.10);}
+  .gear{flex:none;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
+    border-radius:6px;color:var(--muted);opacity:.6;}
+  .gear svg{width:14px;height:14px;}
+  .gear:hover,.gear.on{opacity:1;background:rgba(255,255,255,.10);}
+  .settings{flex:none;padding:8px 12px 10px;border-bottom:1px solid var(--border);background:rgba(255,255,255,.03);}
+  .settings .srow{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:26px;font-size:12px;color:var(--dim);}
+  .settings .srow a.sw{flex:none;position:relative;width:30px;height:16px;border-radius:999px;
+    background:rgba(255,255,255,.16);}
+  .settings .srow a.sw::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;
+    background:var(--muted);transition:left .12s;}
+  .settings .srow a.sw.on{background:var(--accent);}
+  .settings .srow a.sw.on::after{left:16px;background:#fff;}
   .grip{position:fixed;right:3px;bottom:3px;width:14px;height:14px;pointer-events:none;opacity:.45;
     background:linear-gradient(135deg,transparent 0 45%,var(--muted) 45% 55%,transparent 55% 70%,var(--muted) 70% 80%,transparent 80%);}
   .title{font-size:12px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);}
@@ -39,6 +51,9 @@
   .name .ws{font-weight:600;}
   .flag{color:var(--flag);font-size:13px;line-height:1;flex:none;}
   .row{display:flex;align-items:center;gap:8px;height:36px;padding:0 8px 0 10px;margin-left:14px;border-radius:9px;}
+  .compact .row{height:26px;gap:6px;}
+  .compact .group{height:22px;}
+  .compact .name{font-size:12.5px;}
   .row:hover{background:rgba(255,255,255,.06);}
   .dot{width:10px;height:10px;border-radius:50%;flex:none;}
   .lead{flex:1;min-width:0;display:flex;align-items:center;gap:7px;overflow:hidden;height:100%;}
@@ -64,7 +79,7 @@
   .ctl.on{opacity:1;color:var(--accent);}
   .ctl.flagon{opacity:1;color:var(--flag);}
   .empty{padding:26px 18px;text-align:center;color:var(--muted);font-size:13px;}
-  .usage{margin-left:auto;display:flex;align-items:center;gap:7px;font-size:11px;
+  .usage{flex:1;min-width:0;justify-content:flex-end;display:flex;align-items:center;gap:7px;font-size:11px;
     color:var(--muted);font-variant-numeric:tabular-nums;}
   .usage .useg{display:inline-flex;gap:4px;} .usage .useg b{font-weight:600;}
   .usage .ok{color:var(--muted);} .usage .warn{color:var(--need);} .usage .crit{color:#ff5f56;}
@@ -84,14 +99,23 @@
       <span class="title">Sessions</span>
       <span class="toggle" id="toggle"></span>
       <span class="usage" id="usage"></span>
+      <a class="gear" id="gear" href="wsw://settings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></a>
       <a class="hide" href="wsw://hide" title="Hide (toggle with &#8984;&#8679;D)">&times;</a>
     </div>
+    <div class="settings" id="settings" style="display:none"></div>
     <div class="list" id="list"><div id="content"></div></div>
   </div>
   <div class="grip"></div>
 <script>
   var listEl = document.getElementById('content');
   var toggleEl = document.getElementById('toggle');
+  var settingsEl = document.getElementById('settings');
+  var gearEl = document.getElementById('gear');
+  var DEFAULT_SETTINGS = {showBranch:true, showTime:true, showUsage:true, showPill:true, compact:false};
+  var SETTING_LABELS = [
+    ['showBranch','Git branch'], ['showTime','Time in state'], ['showUsage','Usage line'],
+    ['showPill','Status pill'], ['compact','Compact rows']];
+  var lastUsage = null, showUsageNow = true;
   var STATUS = {
     "running":     {cls:"running", pill:"st-running", label:"running"},
     "subagents":   {cls:"sub",     pill:"st-sub",     label:"subagents"},
@@ -120,10 +144,32 @@
       + '<a class="'+(view==='triage'?'active':'')+'" href="wsw://view?set=triage">Triage</a>';
   }
 
+  function renderSettings(view, S, open){
+    gearEl.className = 'gear' + (open ? ' on' : '');
+    settingsEl.style.display = open ? '' : 'none';
+    if(!open){ settingsEl.innerHTML = ''; return; }
+    var h = '';
+    for(var i=0;i<SETTING_LABELS.length;i++){
+      var k = SETTING_LABELS[i][0], on = !!S[k];
+      h += '<div class="srow"><span>'+SETTING_LABELS[i][1]+'</span>'
+         + '<a class="sw'+(on?' on':'')+'" href="wsw://set?key='+k+'&val='+(on?0:1)+'" title="'+(on?'on':'off')+'"></a></div>';
+    }
+    h += '<div class="srow"><span>View</span><span class="toggle">'
+       + '<a class="'+(view==='workspace'?'active':'')+'" href="wsw://view?set=workspace">Workspace</a>'
+       + '<a class="'+(view==='triage'?'active':'')+'" href="wsw://view?set=triage">Triage</a></span></div>';
+    settingsEl.innerHTML = h;
+  }
+
   // rows arrive already ordered by the Lua side; this only draws headers on change.
-  window.setData = function(rows, view){
+  window.setData = function(rows, view, settings, settingsOpen){
     view = (view === 'triage') ? 'triage' : 'workspace';
+    var S = {};
+    for(var k in DEFAULT_SETTINGS) S[k] = (settings && typeof settings[k] === 'boolean') ? settings[k] : DEFAULT_SETTINGS[k];
     renderToggle(view);
+    renderSettings(view, S, settingsOpen === true);
+    listEl.className = S.compact ? 'compact' : '';
+    showUsageNow = S.showUsage;
+    window.setUsage(lastUsage);
     if(!rows || rows.length === 0){
       listEl.innerHTML = '<div class="empty">No sessions</div>';
       return;
@@ -154,18 +200,18 @@
           + ' <span class="sep">&rsaquo;</span> '+esc(e.tabName)
         : esc(e.tabName);
       var flagicon = e.flagged ? '<span class="flag">&#9873;</span>' : '';
-      var chip = e.branch
+      var chip = (S.showBranch && e.branch)
         ? '<span class="chip'+(e.worktree?' wt':'')+'" title="'+(e.worktree?'worktree: ':'branch: ')+esc(e.branch)+'">'
           + GITICON + '<span class="bn">'+esc(e.branch)+'</span></span>'
         : '';
       var note = (e.flagged && e.note) ? '<span class="note">'+esc(e.note)+'</span>' : '';
-      var time = e.activity ? '<span class="time">'+elapsed(e.activity)+'</span>' : '';
+      var time = (S.showTime && e.activity) ? '<span class="time">'+elapsed(e.activity)+'</span>' : '';
       var tab = encodeURIComponent(e.tabId == null ? '' : e.tabId);
       html += '<div class="row">'
             +   '<a class="lead" href="wsw://jump?tab='+tab+'">'
             +     '<span class="dot '+st.cls+'"></span>'+flagicon
             +     '<span class="name">'+nameHtml+'</span>'+chip+note+'</a>'
-            +   '<span class="rightmeta">'+time+'<span class="pill '+st.pill+'">'+esc(st.label)+'</span>'
+            +   '<span class="rightmeta">'+time+(S.showPill ? '<span class="pill '+st.pill+'">'+esc(st.label)+'</span>' : '')
             +     '<a class="ctl'+(e.pinned?' on':'')+'" href="wsw://pin?tab='+tab+'" title="pin">&#9733;</a>'
             +     '<a class="ctl'+(e.flagged?' flagon':'')+'" href="wsw://flag?tab='+tab+'" title="flag">&#9873;</a>'
             +   '</span></div>';
@@ -176,7 +222,8 @@
   window.setUsage = function(u){
     var el = document.getElementById('usage');
     if(!el) return;
-    if(!u || !u.session){ el.innerHTML = ''; return; }
+    lastUsage = u;
+    if(!showUsageNow || !u || !u.session){ el.innerHTML = ''; return; }
     function fmtReset(iso){
       if(!iso) return '';
       var t = new Date(iso).getTime();
@@ -212,7 +259,8 @@
     var list = document.getElementById('list');
     var cs = list ? getComputedStyle(list) : null;
     var pad = cs ? parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) : 0;
-    return Math.ceil((head ? head.offsetHeight + 1 : 0) + pad + listEl.scrollHeight);
+    var set = (settingsEl && settingsEl.style.display !== 'none') ? settingsEl.offsetHeight + 1 : 0;
+    return Math.ceil((head ? head.offsetHeight + 1 : 0) + set + pad + listEl.scrollHeight);
   };
 
   // First paint from embedded data, so it shows before any JS is injected.
