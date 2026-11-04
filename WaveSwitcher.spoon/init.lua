@@ -294,6 +294,7 @@ local function applyOverrides(entries, overrideMap)
         local status, shouldClear = resolveOverride(e.color, ov)
         if status then
           e.status = status
+          e.rawColor = e.color
           e.color = STATUS_COLORS[status] or e.color
           e.overridden = true
         end
@@ -461,6 +462,7 @@ local HTML = [==[
   .rightmeta{flex:none;display:flex;align-items:center;gap:9px;}
   .time{flex:none;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:11px;color:var(--muted);
     opacity:.7;font-variant-numeric:tabular-nums;}
+  .ovr{flex:none;width:6px;height:6px;border-radius:50%;border:1.5px solid var(--flag);}
   .pill{flex:none;font-size:10.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
     padding:3px 9px;border-radius:999px;}
   .empty{padding:26px 18px;text-align:center;color:var(--muted);font-size:13px;}
@@ -498,6 +500,7 @@ local HTML = [==[
       <span class="k"><kbd>↑</kbd><kbd>↓</kbd> / <kbd>j</kbd><kbd>k</kbd> move</span>
       <span class="k"><kbd>⇥</kbd> pin</span>
       <span class="k"><kbd>&#8963;F</kbd> flag</span>
+      <span class="k"><kbd>?</kbd> status</span>
       <span class="k"><kbd>esc</kbd> close</span>
       <span class="usage" id="usage"></span>
     </div>
@@ -529,8 +532,14 @@ local HTML = [==[
 
   // Called from Hammerspoon on every keystroke. rows: filtered list; sel: 0-based.
   // noteMode/noteText drive the follow-up note-entry input line.
-  window.setData = function(rows, sel, query, noteMode, noteText){
-    if(noteMode){
+  window.setData = function(rows, sel, query, noteMode, noteText, statusMode, statusLabels){
+    if(statusMode){
+      var parts = (statusLabels || []).map(function(l, i){
+        return '<kbd>'+(i+1)+'</kbd> '+esc(l);
+      });
+      qEl.innerHTML = '<span class="noteprompt">Set status</span>&nbsp; '
+        + parts.join('&nbsp; ') + '&nbsp; <kbd>0</kbd> auto';
+    } else if(noteMode){
       qEl.innerHTML = '<span class="noteprompt">&#9873; Note (optional): </span>'
         + esc(noteText || '') + '<span class="caret"></span>';
     } else {
@@ -565,6 +574,7 @@ local HTML = [==[
           + ' <span class="sep">›</span> '+esc(e.tabName)
         : esc(e.tabName);
       var flagicon = e.flagged ? '<span class="flag">&#9873;</span>' : '';
+      var ovr = e.overridden ? '<span class="ovr" title="status set manually"></span>' : '';
       var wschip = e.pinned
         ? '<span class="wsdot" style="background:'+esc(e.color)+'"></span>' : '';
       // git branch chip (filled in async); teal + worktree label marks a worktree.
@@ -580,7 +590,7 @@ local HTML = [==[
             +   '<span class="dot '+st.cls+'"></span>'
             +   wschip + flagicon
             +   '<span class="lead"><span class="name">'+nameHtml+'</span>'+chip+note+'</span>'
-            +   '<span class="rightmeta">'+time+'<span class="pill '+st.pill+'">'+esc(st.label)+'</span></span>'
+            +   '<span class="rightmeta">'+time+ovr+'<span class="pill '+st.pill+'">'+esc(st.label)+'</span></span>'
             +   '</div>';
       ri++;
     }
@@ -708,7 +718,9 @@ local function renderNow()
   if not webview then return end
   local noteArgs = P.noteMode and ("true," .. jsStr(P.noteText or "")) or 'false,""'
   local js = "window.setData(" .. rowsJson(P.filtered) .. "," .. (P.sel - 1)
-           .. "," .. jsStr(P.query) .. "," .. noteArgs .. ")"
+           .. "," .. jsStr(P.query) .. "," .. noteArgs
+           .. "," .. (P.statusMode and "true" or "false")
+           .. "," .. hs.json.encode(OVERRIDE_STATUSES) .. ")"
   webview:evaluateJavaScript(js, function() end)
 end
 
@@ -796,6 +808,20 @@ toggleFollowup = function()
   end
 end
 
+-- Apply (n = 1..6) or clear (n = 0) a manual status override on the tab the
+-- picker was opened for, then reload so the change shows. Runs OUTSIDE the key
+-- tap (loadEntries shells out). Keeps the selection on the same tab.
+local function applyStatusPick(tabId, n, atColor)
+  if n == 0 then clearStatusOverride(tabId)
+  else setStatusOverride(tabId, OVERRIDE_STATUSES[n], atColor) end
+  P.entries = loadEntries()
+  refilter()
+  for i, ent in ipairs(P.filtered) do
+    if ent.tabId == tabId then P.sel = i; break end
+  end
+  renderNow()
+end
+
 local function handleKey(e)
   local flags = e:getFlags()
   local key = hs.keycodes.map[e:getKeyCode()]
@@ -827,6 +853,36 @@ local function handleKey(e)
       end
     end
     return true -- consume everything else while entering a note
+  end
+
+  -- Status-picker mode (opened with `?`): 1-6 set, 0 auto, esc cancels.
+  if P.statusMode then
+    if key == "escape" then
+      P.statusMode = false; P.statusTabId = nil; P.statusColor = nil
+      scheduleRender(); return true
+    end
+    if not (flags.cmd or flags.ctrl or flags.alt) then
+      local ch = e:getCharacters(true)
+      local n = ch and tonumber(ch)
+      if n and #ch == 1 and n >= 0 and n <= #OVERRIDE_STATUSES then
+        local tabId, color = P.statusTabId, P.statusColor
+        P.statusMode = false; P.statusTabId = nil; P.statusColor = nil
+        hs.timer.doAfter(0, function() applyStatusPick(tabId, n, color) end)
+      end
+    end
+    return true -- consume everything while picking a status
+  end
+
+  -- `?` is reserved as the status-picker trigger (a literal `?` can no longer be
+  -- typed into the search box). Must come before the printable-char path below.
+  if not (flags.cmd or flags.ctrl or flags.alt) and e:getCharacters(true) == "?" then
+    local sel = P.filtered[P.sel]
+    if sel and sel.tabId then
+      P.statusMode = true; P.statusTabId = sel.tabId
+      P.statusColor = sel.rawColor or sel.color -- color the override holds against
+      scheduleRender()
+    end
+    return true
   end
 
   if key == "escape" or (flags.ctrl and key == "k") then
@@ -865,6 +921,7 @@ open = function()
   P.query = ""; P.sel = 1
   P.activeWs = nil
   P.noteMode = false; P.noteTabId = nil; P.noteText = ""
+  P.statusMode = false; P.statusTabId = nil; P.statusColor = nil
   refilter()
   -- Pre-select the tab you came from (the active window's active tab), and note
   -- its workspace so a jump within it can skip the (slower) workspace switch.
