@@ -54,8 +54,9 @@ local DB_PATH = os.getenv("HOME") .. "/Library/Application Support/waveterm/db/w
 -- files are read once to migrate existing data, never written or deleted.
 local PIN_FILE      = hs.configdir .. "/waveswitcher-pins.json"
 local FOLLOWUP_FILE = hs.configdir .. "/waveswitcher-followups.json"
-local PIN_KEY, FOLLOWUP_KEY, OVERLAY_KEY =
-  "waveswitcher.pins", "waveswitcher.followups", "waveswitcher.overlay"
+local PIN_KEY, FOLLOWUP_KEY, OVERLAY_KEY, OVERRIDE_KEY =
+  "waveswitcher.pins", "waveswitcher.followups", "waveswitcher.overlay",
+  "waveswitcher.statusoverride"
 local function readJsonMap(path)
   local f = io.open(path, "r")
   if not f then return {} end
@@ -281,6 +282,46 @@ local TOP_FRAC = 0.15
 -- on reopen; refreshed in the background each open.
 local gitCache = {}
 
+-- Apply manual status overrides to entries (pure). Returns the tabIds whose
+-- override should be cleared: the raw color moved on, or the tab is gone.
+local function applyOverrides(entries, overrideMap)
+  local cleared, seen = {}, {}
+  for _, e in ipairs(entries) do
+    if e.tabId ~= nil then
+      seen[e.tabId] = true
+      local ov = overrideMap[e.tabId]
+      if ov ~= nil then
+        local status, shouldClear = resolveOverride(e.color, ov)
+        if status then
+          e.status = status
+          e.color = STATUS_COLORS[status] or e.color
+          e.overridden = true
+        end
+        if shouldClear then cleared[#cleared + 1] = e.tabId end
+      end
+    end
+  end
+  for tabId in pairs(overrideMap) do
+    if not seen[tabId] then cleared[#cleared + 1] = tabId end
+  end
+  return cleared
+end
+obj._test.applyOverrides = applyOverrides
+
+-- Override store (hs.settings only; never files under ~/.hammerspoon).
+local function readOverrides()
+  local t = hs.settings.get(OVERRIDE_KEY)
+  return type(t) == "table" and t or {}
+end
+local function setStatusOverride(tabId, status, atColor)
+  hs.settings.set(OVERRIDE_KEY, overrideSet(readOverrides(), tabId, status, atColor))
+end
+local function clearStatusOverride(tabId)
+  hs.settings.set(OVERRIDE_KEY, overrideClear(readOverrides(), tabId))
+end
+obj._test.setStatusOverride = setStatusOverride
+obj._test.clearStatusOverride = clearStatusOverride
+
 -- Turn the decoded session-list JSON (a Lua array) into entries, merging pins,
 -- followups and the git cache. Shared by the popup (loadEntries) and the overlay.
 local function buildEntries(data)
@@ -306,6 +347,12 @@ local function buildEntries(data)
       flagged = note ~= nil,
       note = note,
     }
+  end
+  local overrides = readOverrides()
+  local cleared = applyOverrides(entries, overrides)
+  if #cleared > 0 then
+    for _, id in ipairs(cleared) do overrideClear(overrides, id) end
+    hs.settings.set(OVERRIDE_KEY, overrides)
   end
   return entries
 end
@@ -625,7 +672,7 @@ local function rowsJson(list)
   for _, e in ipairs(list) do
     rows[#rows + 1] = { ws = e.ws, tabId = e.tabId, wsName = e.wsName, tabName = e.tabName,
                         status = e.status, color = e.color, pinned = e.pinned,
-                        flagged = e.flagged, note = e.note,
+                        flagged = e.flagged, note = e.note, overridden = e.overridden,
                         branch = e.branch, worktree = e.worktree, activity = e.activity }
   end
   return hs.json.encode(rows)

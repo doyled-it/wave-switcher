@@ -145,4 +145,17 @@ do
   eq("OVERRIDE_STATUSES count", #T.OVERRIDE_STATUSES, 6)
 end
 
+do
+  local es = { {tabId="t1", status="running", color="#4a9eff"} }
+  local cleared = T.applyOverrides(es, { t1={status="idle",atColor="#4a9eff"} })
+  eq("held status", es[1].status, "idle")
+  eq("held overridden flag", es[1].overridden, true)
+  eq("held color follows", es[1].color, T.STATUS_COLORS["idle"])
+  eq("held not cleared", cleared, {})
+  local es2 = { {tabId="t1", status="idle", color="#58c142"} }
+  eq("changed clears", T.applyOverrides(es2, { t1={status="idle",atColor="#4a9eff"} }), { "t1" })
+  eq("changed not overridden", es2[1].overridden, nil)
+  eq("prune absent", T.applyOverrides({}, { gone={status="idle",atColor="#4a9eff"} }), { "gone" })
+end
+
 if bad == 0 and T then print("ALL PASS") end
