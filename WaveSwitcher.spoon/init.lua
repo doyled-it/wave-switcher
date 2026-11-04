@@ -1030,7 +1030,7 @@ local OVERLAY_MIN_H = 160
 local OVERLAY_GRIP = 18 -- bottom-right resize corner (px square)
 
 -- entries: latest rows; pollTimer/gitTimer/usageTimer run only while visible.
-O = { webview = nil, enabled = true, view = "workspace", settings = nil, settingsOpen = false, frame = nil, dragTap = nil, resizeTap = nil, userSized = false,
+O = { webview = nil, enabled = true, view = "workspace", settings = nil, settingsOpen = false, statusMenuFor = nil, frame = nil, dragTap = nil, resizeTap = nil, userSized = false,
             entries = {}, pollTimer = nil, gitTimer = nil, usageTimer = nil }
 local toggleHotkey = nil
 -- Forward declarations: any overlay local referenced above its definition MUST be
@@ -1151,6 +1151,25 @@ local function overlayDispatch(verb, params)
     overlayRender()
   elseif verb == "flag" then
     if e.flagged then clearFlag(tabId) else applyFlag(tabId, "") end
+    overlayRender()
+  elseif verb == "statusmenu" then
+    O.statusMenuFor = (O.statusMenuFor == tabId) and nil or tabId
+    overlayRender()
+  elseif verb == "setstatus" then
+    local st = params.status
+    local ok = (st == "auto")
+    for _, name in ipairs(OVERRIDE_STATUSES) do
+      if st == name then ok = true end
+    end
+    if not ok then return end
+    if st == "auto" then
+      clearStatusOverride(tabId)
+    else
+      -- Hold against the RAW color, not the possibly-overridden e.color.
+      setStatusOverride(tabId, st, e.rawColor or e.color)
+    end
+    O.statusMenuFor = nil
+    overlayReload()
     overlayRender()
   end
 end
@@ -1325,7 +1344,8 @@ overlayRender = function()
   if not O.webview then return end
   local list = (O.view == "triage") and orderTriage(O.entries) or orderWorkspace(O.entries)
   local js = "window.setData(" .. rowsJson(list) .. "," .. jsStr(O.view) .. ","
-    .. hs.json.encode(overlaySettings(O.settings)) .. "," .. tostring(O.settingsOpen == true) .. ")"
+    .. hs.json.encode(overlaySettings(O.settings)) .. "," .. tostring(O.settingsOpen == true) .. ","
+    .. (O.statusMenuFor and jsStr(O.statusMenuFor) or "null") .. ")"
   O.webview:evaluateJavaScript(js, function() overlayAutoFit() end)
 end
 
@@ -1450,6 +1470,7 @@ local function showOverlay()
 end
 
 hideOverlay = function()
+  O.statusMenuFor = nil
   stopOverlayTimers()
   if O.webview then O.webview:hide() end
   stopDragTap()
