@@ -1037,6 +1037,7 @@ local toggleHotkey = nil
 -- declared here and defined by assignment (NAME = function), never `local function`
 -- (a late `local function` leaves earlier closures bound to a nil global).
 local overlayRender
+local overlayReload
 local hideOverlay
 local stopResizeTap
 
@@ -1169,8 +1170,8 @@ local function overlayDispatch(verb, params)
       setStatusOverride(tabId, st, e.rawColor or e.color)
     end
     O.statusMenuFor = nil
-    overlayReload()
     overlayRender()
+    overlayReload()
   end
 end
 
@@ -1352,7 +1353,7 @@ end
 -- Async (hs.task) so the sqlite read never stalls the main thread. At most one
 -- reload is in flight at a time.
 local reloading = false
-local function overlayReload()
+overlayReload = function()
   if not O.webview or reloading then return end
   reloading = true
   local task = hs.task.new("/bin/zsh", function(_, out)
