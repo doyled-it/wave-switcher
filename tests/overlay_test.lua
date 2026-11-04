@@ -129,4 +129,20 @@ do
   eq("frameVisible no screens", T.frameVisible({x=0,y=0,w=10,h=10}, {}), false)
 end
 
+do
+  eq("overrideSet", T.overrideSet({}, "t1", "idle", "#4a9eff"), { t1={status="idle",atColor="#4a9eff"} })
+  eq("overrideClear", T.overrideClear({ t1={status="idle"} }, "t1"), {})
+  eq("overrideClear stale no-op", T.overrideClear({}, "gone"), {})
+  -- resolveOverride returns (status|nil, shouldClear); capture both locals, never pack nils into a table.
+  local s1,c1 = T.resolveOverride("#4a9eff", nil)
+  eq("resolve none status", s1, nil);  eq("resolve none clear", c1, false)
+  local s2,c2 = T.resolveOverride("#4a9eff", {status="idle"})         -- malformed: no atColor
+  eq("resolve malformed status", s2, nil);  eq("resolve malformed clear", c2, false)
+  local s3,c3 = T.resolveOverride("#4a9eff", {status="idle",atColor="#4a9eff"})
+  eq("resolve held status", s3, "idle");  eq("resolve held clear", c3, false)
+  local s4,c4 = T.resolveOverride("#58c142", {status="idle",atColor="#4a9eff"})
+  eq("resolve changed status", s4, nil);  eq("resolve changed clear", c4, true)
+  eq("OVERRIDE_STATUSES count", #T.OVERRIDE_STATUSES, 6)
+end
+
 if bad == 0 and T then print("ALL PASS") end

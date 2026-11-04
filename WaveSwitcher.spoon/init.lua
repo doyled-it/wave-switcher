@@ -90,7 +90,29 @@ local function flagClear(map, tabId)
   map[tabId] = nil
   return map
 end
+local OVERRIDE_STATUSES = { "idle", "running", "subagents", "shell", "compacting", "needs input" }
+local function overrideSet(map, tabId, status, atColor)
+  map[tabId] = { status = status, atColor = atColor }
+  return map
+end
+local function overrideClear(map, tabId)
+  map[tabId] = nil
+  return map
+end
+-- Returns (status|nil, shouldClear). An override holds only while the raw
+-- color is unchanged from when it was set.
+local function resolveOverride(rawColor, override)
+  if type(override) ~= "table" or not override.status or not override.atColor then
+    return nil, false
+  end
+  if override.atColor == rawColor then return override.status, false end
+  return nil, true
+end
 obj._test = obj._test or {}
+obj._test.OVERRIDE_STATUSES = OVERRIDE_STATUSES
+obj._test.overrideSet = overrideSet
+obj._test.overrideClear = overrideClear
+obj._test.resolveOverride = resolveOverride
 obj._test.pinSet = pinSet
 obj._test.flagSet = flagSet
 obj._test.flagClear = flagClear
