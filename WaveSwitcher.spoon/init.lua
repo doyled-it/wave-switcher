@@ -264,7 +264,7 @@ local function themeCss()
 end
 
 -- Layout metrics (points)
-local CARD_W   = 720
+local CARD_W   = 790
 local PAD      = 28
 local HEADER_H = 58
 local FOOTER_H = 42
@@ -466,9 +466,21 @@ local HTML = [==[
   .pill{flex:none;font-size:10.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
     padding:3px 9px;border-radius:999px;}
   .empty{padding:26px 18px;text-align:center;color:var(--muted);font-size:13px;}
-  .footer{flex:none;display:flex;gap:16px;align-items:center;padding:0 18px;height:42px;
-    border-top:1px solid var(--border);color:var(--muted);font-size:11px;}
-  .footer .k{display:inline-flex;gap:5px;align-items:center;}
+  .footer{flex:none;display:flex;gap:20px;align-items:center;padding:0 22px;height:42px;
+    border-top:1px solid var(--border);color:var(--muted);font-size:10.5px;white-space:nowrap;}
+  .footer .k{display:inline-flex;gap:6px;align-items:center;}
+  .card{position:relative;}
+  .statusback{position:absolute;inset:0;background:rgba(8,9,11,.55);display:none;z-index:5;}
+  .statuspicker{position:absolute;left:50%;top:84px;transform:translateX(-50%);z-index:6;display:none;
+    min-width:230px;padding:14px 16px 12px;background:var(--bg);border:1px solid var(--border);
+    border-radius:12px;box-shadow:0 18px 50px rgba(0,0,0,.6),0 2px 8px rgba(0,0,0,.4);}
+  .statuspicker .sp-title{font-size:10.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;
+    color:var(--muted);margin-bottom:10px;}
+  .statuspicker .sp-opt{display:flex;align-items:center;gap:10px;padding:5px 2px;font-size:12.5px;color:var(--dim);}
+  .statuspicker .sp-opt .dot{width:8px;height:8px;}
+  .statuspicker .sp-opt .sp-lab{flex:1;}
+  .statuspicker .sp-sep{height:1px;background:var(--border);margin:6px 0;}
+  .statuspicker .sp-esc{margin-top:8px;font-size:10.5px;color:var(--muted);}
   kbd{font-family:inherit;font-size:10.5px;color:var(--dim);background:rgba(255,255,255,.07);
     border:1px solid var(--border);border-radius:5px;padding:1px 6px;min-width:16px;text-align:center;}
   .usage{margin-left:auto;display:flex;align-items:center;gap:7px;font-size:11px;
@@ -495,6 +507,8 @@ local HTML = [==[
     </div>
     <div class="divider"></div>
     <div class="list" id="list"></div>
+    <div class="statusback" id="statusback"></div>
+    <div class="statuspicker" id="statuspicker"></div>
     <div class="footer">
       <span class="k"><kbd>↵</kbd> jump</span>
       <span class="k"><kbd>↑</kbd><kbd>↓</kbd> / <kbd>j</kbd><kbd>k</kbd> move</span>
@@ -508,6 +522,8 @@ local HTML = [==[
 <script>
   var listEl = document.getElementById('list');
   var qEl = document.getElementById('q');
+  var spEl = document.getElementById('statuspicker');
+  var sbEl = document.getElementById('statusback');
   var STATUS = {
     "running":     {cls:"running", pill:"st-running", label:"running"},
     "subagents":   {cls:"sub",     pill:"st-sub",     label:"subagents"},
@@ -534,12 +550,17 @@ local HTML = [==[
   // noteMode/noteText drive the follow-up note-entry input line.
   window.setData = function(rows, sel, query, noteMode, noteText, statusMode, statusLabels){
     if(statusMode){
-      var parts = (statusLabels || []).map(function(l, i){
-        return '<kbd>'+(i+1)+'</kbd> '+esc(l);
-      });
-      qEl.innerHTML = '<span class="noteprompt">Set status</span>&nbsp; '
-        + parts.join('&nbsp; ') + '&nbsp; <kbd>0</kbd> auto';
-    } else if(noteMode){
+      var opts = (statusLabels || []).map(function(l, i){
+        return '<div class="sp-opt"><span class="dot '+statusOf(l).cls+'"></span>'
+          + '<span class="sp-lab">'+esc(l)+'</span><kbd>'+(i+1)+'</kbd></div>';
+      }).join('');
+      spEl.innerHTML = '<div class="sp-title">Set status</div>' + opts
+        + '<div class="sp-sep"></div><div class="sp-opt"><span class="dot none"></span>'
+        + '<span class="sp-lab">auto</span><kbd>0</kbd></div>'
+        + '<div class="sp-esc"><kbd>esc</kbd> cancel</div>';
+    }
+    spEl.style.display = sbEl.style.display = statusMode ? 'block' : 'none';
+    if(noteMode){
       qEl.innerHTML = '<span class="noteprompt">&#9873; Note (optional): </span>'
         + esc(noteText || '') + '<span class="caret"></span>';
     } else {
