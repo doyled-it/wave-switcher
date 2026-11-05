@@ -114,7 +114,7 @@ It shares the popup's entry loading, status colors, and pin/flag transforms. Not
 - **Non-activating.** The window is `borderless | nonactivating` so clicks do not
   steal key focus from Wave. Keep it that way.
 - **Clicks route through `policyCallback`, not a message bridge.** Links in the page
-  are `wsw://<verb>?...` (`jump`, `pin`, `flag`, `view`, `settings`, `set`, `hide`);
+  are `wsw://<verb>?...` (`jump`, `pin`, `flag`, `view`, `settings`, `set`, `hide`, `statusmenu`, `setstatus`);
   `overlayPolicy` denies the navigation and calls `overlayDispatch`. Any overlay
   local referenced before its definition (e.g. `overlayRender`, `hideOverlay`) must
   be forward-declared or the handlers see nil.
@@ -128,6 +128,22 @@ It shares the popup's entry loading, status colors, and pin/flag transforms. Not
   toggles the panel (`O.settingsOpen`, not persisted).
 - Follow-up notes are authored only in the popup; the overlay just toggles the flag.
 
+### Manual status override
+
+- **Store**: `hs.settings` key `waveswitcher.statusoverride` (`OVERRIDE_KEY`), a map
+  `tabId -> {status, atColor}`; never a file. `OVERRIDE_STATUSES` is the ordered list
+  (`idle`, `running`, `subagents`, `shell`, `compacting`, `needs input`).
+- **Applied in `buildEntries`** via `applyOverrides`, so the popup and overlay share
+  it. An override holds only while the raw color equals `atColor`; when the hook moves
+  the raw color on (or the tab is gone) it is cleared and pruned. It corrects the
+  displayed status only, never Wave's own flag.
+- **Entry points**: popup `?` (status mode, then `0`..`6`; applied outside the key
+  tap via `hs.timer.doAfter(0, ...)`) and the overlay `wsw://statusmenu?tab=` /
+  `wsw://setstatus?tab=&status=` verbs (pill menu in `wave-dashboard.html`). Hold
+  against the raw color (`rawColor`), not the possibly-overridden `color`.
+- **`?` is a reserved popup key** (checked before the printable-char path), so it can
+  no longer be typed into the search box.
+
 ### Non-obvious constraints (do not "simplify" these)
 
 - **The webview must never take keyboard focus.** It is a render-only
@@ -140,7 +156,7 @@ It shares the popup's entry loading, status colors, and pin/flag transforms. Not
   `togglePin` is the exception: it runs via `hs.timer.doAfter(0, ...)`, outside
   the tap.
 - **Pins, follow-up flags, and overlay state live in `hs.settings`** (keys
-  `waveswitcher.pins`/`.followups`/`.overlay`), never in files under
+  `waveswitcher.pins`/`.followups`/`.overlay`/`.statusoverride`), never in files under
   `~/.hammerspoon/`: many configs reload on any write there. Legacy
   `waveswitcher-*.json` files are imported once (via `readSetting`) and never
   written or deleted. Not Wave metadata, because

@@ -22,7 +22,7 @@ obj.__index = obj
 
 -- Metadata
 obj.name = "WaveSwitcher"
-obj.version = "1.3.0"
+obj.version = "1.4.0"
 obj.author = "mdoyle"
 obj.homepage = "https://github.com/doyled-it/wave-switcher"
 obj.license = "MIT - https://opensource.org/licenses/MIT"
@@ -54,8 +54,9 @@ local DB_PATH = os.getenv("HOME") .. "/Library/Application Support/waveterm/db/w
 -- files are read once to migrate existing data, never written or deleted.
 local PIN_FILE      = hs.configdir .. "/waveswitcher-pins.json"
 local FOLLOWUP_FILE = hs.configdir .. "/waveswitcher-followups.json"
-local PIN_KEY, FOLLOWUP_KEY, OVERLAY_KEY =
-  "waveswitcher.pins", "waveswitcher.followups", "waveswitcher.overlay"
+local PIN_KEY, FOLLOWUP_KEY, OVERLAY_KEY, OVERRIDE_KEY =
+  "waveswitcher.pins", "waveswitcher.followups", "waveswitcher.overlay",
+  "waveswitcher.statusoverride"
 local function readJsonMap(path)
   local f = io.open(path, "r")
   if not f then return {} end
@@ -90,7 +91,29 @@ local function flagClear(map, tabId)
   map[tabId] = nil
   return map
 end
+local OVERRIDE_STATUSES = { "idle", "running", "subagents", "shell", "compacting", "needs input" }
+local function overrideSet(map, tabId, status, atColor)
+  map[tabId] = { status = status, atColor = atColor }
+  return map
+end
+local function overrideClear(map, tabId)
+  map[tabId] = nil
+  return map
+end
+-- Returns (status|nil, shouldClear). An override holds only while the raw
+-- color is unchanged from when it was set.
+local function resolveOverride(rawColor, override)
+  if type(override) ~= "table" or not override.status or not override.atColor then
+    return nil, false
+  end
+  if override.atColor == rawColor then return override.status, false end
+  return nil, true
+end
 obj._test = obj._test or {}
+obj._test.OVERRIDE_STATUSES = OVERRIDE_STATUSES
+obj._test.overrideSet = overrideSet
+obj._test.overrideClear = overrideClear
+obj._test.resolveOverride = resolveOverride
 obj._test.pinSet = pinSet
 obj._test.flagSet = flagSet
 obj._test.flagClear = flagClear
@@ -241,7 +264,7 @@ local function themeCss()
 end
 
 -- Layout metrics (points)
-local CARD_W   = 720
+local CARD_W   = 790
 local PAD      = 28
 local HEADER_H = 58
 local FOOTER_H = 42
@@ -250,6 +273,7 @@ local GROUP_H  = 30
 local LIST_PAD = 16
 local MAX_ROWS = 9
 local TOP_FRAC = 0.15
+local MIN_CARD_H = 390 -- fits the status picker: top 84 + ~280 content + margin
 
 --------------------------------------------------------------------------------
 -- Data
@@ -258,6 +282,47 @@ local TOP_FRAC = 0.15
 -- the open path). Keyed by cwd -> { branch, worktree }. Seeds instant repaints
 -- on reopen; refreshed in the background each open.
 local gitCache = {}
+
+-- Apply manual status overrides to entries (pure). Returns the tabIds whose
+-- override should be cleared: the raw color moved on, or the tab is gone.
+local function applyOverrides(entries, overrideMap)
+  local cleared, seen = {}, {}
+  for _, e in ipairs(entries) do
+    if e.tabId ~= nil then
+      seen[e.tabId] = true
+      local ov = overrideMap[e.tabId]
+      if ov ~= nil then
+        local status, shouldClear = resolveOverride(e.color, ov)
+        if status then
+          e.status = status
+          e.rawColor = e.color
+          e.color = STATUS_COLORS[status] or e.color
+          e.overridden = true
+        end
+        if shouldClear then cleared[#cleared + 1] = e.tabId end
+      end
+    end
+  end
+  for tabId in pairs(overrideMap) do
+    if not seen[tabId] then cleared[#cleared + 1] = tabId end
+  end
+  return cleared
+end
+obj._test.applyOverrides = applyOverrides
+
+-- Override store (hs.settings only; never files under ~/.hammerspoon).
+local function readOverrides()
+  local t = hs.settings.get(OVERRIDE_KEY)
+  return type(t) == "table" and t or {}
+end
+local function setStatusOverride(tabId, status, atColor)
+  hs.settings.set(OVERRIDE_KEY, overrideSet(readOverrides(), tabId, status, atColor))
+end
+local function clearStatusOverride(tabId)
+  hs.settings.set(OVERRIDE_KEY, overrideClear(readOverrides(), tabId))
+end
+obj._test.setStatusOverride = setStatusOverride
+obj._test.clearStatusOverride = clearStatusOverride
 
 -- Turn the decoded session-list JSON (a Lua array) into entries, merging pins,
 -- followups and the git cache. Shared by the popup (loadEntries) and the overlay.
@@ -284,6 +349,12 @@ local function buildEntries(data)
       flagged = note ~= nil,
       note = note,
     }
+  end
+  local overrides = readOverrides()
+  local cleared = applyOverrides(entries, overrides)
+  if #cleared > 0 then
+    for _, id in ipairs(cleared) do overrideClear(overrides, id) end
+    hs.settings.set(OVERRIDE_KEY, overrides)
   end
   return entries
 end
@@ -392,12 +463,25 @@ local HTML = [==[
   .rightmeta{flex:none;display:flex;align-items:center;gap:9px;}
   .time{flex:none;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:11px;color:var(--muted);
     opacity:.7;font-variant-numeric:tabular-nums;}
+  .ovr{flex:none;width:6px;height:6px;border-radius:50%;border:1.5px solid var(--flag);}
   .pill{flex:none;font-size:10.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
     padding:3px 9px;border-radius:999px;}
   .empty{padding:26px 18px;text-align:center;color:var(--muted);font-size:13px;}
-  .footer{flex:none;display:flex;gap:16px;align-items:center;padding:0 18px;height:42px;
-    border-top:1px solid var(--border);color:var(--muted);font-size:11px;}
-  .footer .k{display:inline-flex;gap:5px;align-items:center;}
+  .footer{flex:none;display:flex;gap:20px;align-items:center;padding:0 22px;height:42px;
+    border-top:1px solid var(--border);color:var(--muted);font-size:10.5px;white-space:nowrap;}
+  .footer .k{display:inline-flex;gap:6px;align-items:center;}
+  .card{position:relative;}
+  .statusback{position:absolute;inset:0;background:rgba(8,9,11,.55);display:none;z-index:5;}
+  .statuspicker{position:absolute;left:50%;top:84px;transform:translateX(-50%);z-index:6;display:none;
+    min-width:230px;padding:14px 16px 12px;background:var(--bg);border:1px solid var(--border);
+    border-radius:12px;box-shadow:0 18px 50px rgba(0,0,0,.6),0 2px 8px rgba(0,0,0,.4);}
+  .statuspicker .sp-title{font-size:10.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;
+    color:var(--muted);margin-bottom:10px;}
+  .statuspicker .sp-opt{display:flex;align-items:center;gap:10px;padding:5px 2px;font-size:12.5px;color:var(--dim);}
+  .statuspicker .sp-opt .dot{width:8px;height:8px;}
+  .statuspicker .sp-opt .sp-lab{flex:1;}
+  .statuspicker .sp-sep{height:1px;background:var(--border);margin:6px 0;}
+  .statuspicker .sp-esc{margin-top:8px;font-size:10.5px;color:var(--muted);}
   kbd{font-family:inherit;font-size:10.5px;color:var(--dim);background:rgba(255,255,255,.07);
     border:1px solid var(--border);border-radius:5px;padding:1px 6px;min-width:16px;text-align:center;}
   .usage{margin-left:auto;display:flex;align-items:center;gap:7px;font-size:11px;
@@ -424,11 +508,14 @@ local HTML = [==[
     </div>
     <div class="divider"></div>
     <div class="list" id="list"></div>
+    <div class="statusback" id="statusback"></div>
+    <div class="statuspicker" id="statuspicker"></div>
     <div class="footer">
       <span class="k"><kbd>↵</kbd> jump</span>
       <span class="k"><kbd>↑</kbd><kbd>↓</kbd> / <kbd>j</kbd><kbd>k</kbd> move</span>
       <span class="k"><kbd>⇥</kbd> pin</span>
       <span class="k"><kbd>&#8963;F</kbd> flag</span>
+      <span class="k"><kbd>?</kbd> status</span>
       <span class="k"><kbd>esc</kbd> close</span>
       <span class="usage" id="usage"></span>
     </div>
@@ -436,6 +523,8 @@ local HTML = [==[
 <script>
   var listEl = document.getElementById('list');
   var qEl = document.getElementById('q');
+  var spEl = document.getElementById('statuspicker');
+  var sbEl = document.getElementById('statusback');
   var STATUS = {
     "running":     {cls:"running", pill:"st-running", label:"running"},
     "subagents":   {cls:"sub",     pill:"st-sub",     label:"subagents"},
@@ -460,7 +549,18 @@ local HTML = [==[
 
   // Called from Hammerspoon on every keystroke. rows: filtered list; sel: 0-based.
   // noteMode/noteText drive the follow-up note-entry input line.
-  window.setData = function(rows, sel, query, noteMode, noteText){
+  window.setData = function(rows, sel, query, noteMode, noteText, statusMode, statusLabels){
+    if(statusMode){
+      var opts = (statusLabels || []).map(function(l, i){
+        return '<div class="sp-opt"><span class="dot '+statusOf(l).cls+'"></span>'
+          + '<span class="sp-lab">'+esc(l)+'</span><kbd>'+(i+1)+'</kbd></div>';
+      }).join('');
+      spEl.innerHTML = '<div class="sp-title">Set status</div>' + opts
+        + '<div class="sp-sep"></div><div class="sp-opt"><span class="dot none"></span>'
+        + '<span class="sp-lab">auto</span><kbd>0</kbd></div>'
+        + '<div class="sp-esc"><kbd>esc</kbd> cancel</div>';
+    }
+    spEl.style.display = sbEl.style.display = statusMode ? 'block' : 'none';
     if(noteMode){
       qEl.innerHTML = '<span class="noteprompt">&#9873; Note (optional): </span>'
         + esc(noteText || '') + '<span class="caret"></span>';
@@ -496,6 +596,7 @@ local HTML = [==[
           + ' <span class="sep">›</span> '+esc(e.tabName)
         : esc(e.tabName);
       var flagicon = e.flagged ? '<span class="flag">&#9873;</span>' : '';
+      var ovr = e.overridden ? '<span class="ovr" title="status set manually"></span>' : '';
       var wschip = e.pinned
         ? '<span class="wsdot" style="background:'+esc(e.color)+'"></span>' : '';
       // git branch chip (filled in async); teal + worktree label marks a worktree.
@@ -511,7 +612,7 @@ local HTML = [==[
             +   '<span class="dot '+st.cls+'"></span>'
             +   wschip + flagicon
             +   '<span class="lead"><span class="name">'+nameHtml+'</span>'+chip+note+'</span>'
-            +   '<span class="rightmeta">'+time+'<span class="pill '+st.pill+'">'+esc(st.label)+'</span></span>'
+            +   '<span class="rightmeta">'+time+ovr+'<span class="pill '+st.pill+'">'+esc(st.label)+'</span></span>'
             +   '</div>';
       ri++;
     }
@@ -603,7 +704,7 @@ local function rowsJson(list)
   for _, e in ipairs(list) do
     rows[#rows + 1] = { ws = e.ws, tabId = e.tabId, wsName = e.wsName, tabName = e.tabName,
                         status = e.status, color = e.color, pinned = e.pinned,
-                        flagged = e.flagged, note = e.note,
+                        flagged = e.flagged, note = e.note, overridden = e.overridden,
                         branch = e.branch, worktree = e.worktree, activity = e.activity }
   end
   return hs.json.encode(rows)
@@ -639,7 +740,9 @@ local function renderNow()
   if not webview then return end
   local noteArgs = P.noteMode and ("true," .. jsStr(P.noteText or "")) or 'false,""'
   local js = "window.setData(" .. rowsJson(P.filtered) .. "," .. (P.sel - 1)
-           .. "," .. jsStr(P.query) .. "," .. noteArgs .. ")"
+           .. "," .. jsStr(P.query) .. "," .. noteArgs
+           .. "," .. (P.statusMode and "true" or "false")
+           .. "," .. hs.json.encode(OVERRIDE_STATUSES) .. ")"
   webview:evaluateJavaScript(js, function() end)
 end
 
@@ -727,6 +830,20 @@ toggleFollowup = function()
   end
 end
 
+-- Apply (n = 1..6) or clear (n = 0) a manual status override on the tab the
+-- picker was opened for, then reload so the change shows. Runs OUTSIDE the key
+-- tap (loadEntries shells out). Keeps the selection on the same tab.
+local function applyStatusPick(tabId, n, atColor)
+  if n == 0 then clearStatusOverride(tabId)
+  else setStatusOverride(tabId, OVERRIDE_STATUSES[n], atColor) end
+  P.entries = loadEntries()
+  refilter()
+  for i, ent in ipairs(P.filtered) do
+    if ent.tabId == tabId then P.sel = i; break end
+  end
+  renderNow()
+end
+
 local function handleKey(e)
   local flags = e:getFlags()
   local key = hs.keycodes.map[e:getKeyCode()]
@@ -758,6 +875,36 @@ local function handleKey(e)
       end
     end
     return true -- consume everything else while entering a note
+  end
+
+  -- Status-picker mode (opened with `?`): 1-6 set, 0 auto, esc cancels.
+  if P.statusMode then
+    if key == "escape" then
+      P.statusMode = false; P.statusTabId = nil; P.statusColor = nil
+      scheduleRender(); return true
+    end
+    if not (flags.cmd or flags.ctrl or flags.alt) then
+      local ch = e:getCharacters(true)
+      local n = ch and tonumber(ch)
+      if n and #ch == 1 and n >= 0 and n <= #OVERRIDE_STATUSES then
+        local tabId, color = P.statusTabId, P.statusColor
+        P.statusMode = false; P.statusTabId = nil; P.statusColor = nil
+        hs.timer.doAfter(0, function() applyStatusPick(tabId, n, color) end)
+      end
+    end
+    return true -- consume everything while picking a status
+  end
+
+  -- `?` is reserved as the status-picker trigger (a literal `?` can no longer be
+  -- typed into the search box). Must come before the printable-char path below.
+  if not (flags.cmd or flags.ctrl or flags.alt) and e:getCharacters(true) == "?" then
+    local sel = P.filtered[P.sel]
+    if sel and sel.tabId then
+      P.statusMode = true; P.statusTabId = sel.tabId
+      P.statusColor = sel.rawColor or sel.color -- color the override holds against
+      scheduleRender()
+    end
+    return true
   end
 
   if key == "escape" or (flags.ctrl and key == "k") then
@@ -796,6 +943,7 @@ open = function()
   P.query = ""; P.sel = 1
   P.activeWs = nil
   P.noteMode = false; P.noteTabId = nil; P.noteText = ""
+  P.statusMode = false; P.statusTabId = nil; P.statusColor = nil
   refilter()
   -- Pre-select the tab you came from (the active window's active tab), and note
   -- its workspace so a jump within it can skip the (slower) workspace switch.
@@ -812,7 +960,8 @@ open = function()
   local contentH = #P.entries * ROW_H + groups * GROUP_H + LIST_PAD
   local maxListH = MAX_ROWS * ROW_H + 2 * GROUP_H + LIST_PAD
   local listH = math.min(contentH, maxListH)
-  local cardH = HEADER_H + 1 + listH + FOOTER_H
+  -- Floor so the floating status picker (~280px tall, top 84px) is never clipped.
+  local cardH = math.max(HEADER_H + 1 + listH + FOOTER_H, MIN_CARD_H)
   local wvW = CARD_W + 2 * PAD
   local wvH = cardH + 2 * PAD
 
@@ -904,13 +1053,14 @@ local OVERLAY_MIN_H = 160
 local OVERLAY_GRIP = 18 -- bottom-right resize corner (px square)
 
 -- entries: latest rows; pollTimer/gitTimer/usageTimer run only while visible.
-O = { webview = nil, enabled = true, view = "workspace", settings = nil, settingsOpen = false, frame = nil, dragTap = nil, resizeTap = nil, userSized = false,
+O = { webview = nil, enabled = true, view = "workspace", settings = nil, settingsOpen = false, statusMenuFor = nil, frame = nil, dragTap = nil, resizeTap = nil, userSized = false,
             entries = {}, pollTimer = nil, gitTimer = nil, usageTimer = nil }
 local toggleHotkey = nil
 -- Forward declarations: any overlay local referenced above its definition MUST be
 -- declared here and defined by assignment (NAME = function), never `local function`
 -- (a late `local function` leaves earlier closures bound to a nil global).
 local overlayRender
+local overlayReload
 local hideOverlay
 local stopResizeTap
 
@@ -1026,6 +1176,25 @@ local function overlayDispatch(verb, params)
   elseif verb == "flag" then
     if e.flagged then clearFlag(tabId) else applyFlag(tabId, "") end
     overlayRender()
+  elseif verb == "statusmenu" then
+    O.statusMenuFor = (O.statusMenuFor == tabId) and nil or tabId
+    overlayRender()
+  elseif verb == "setstatus" then
+    local st = params.status
+    local ok = (st == "auto")
+    for _, name in ipairs(OVERRIDE_STATUSES) do
+      if st == name then ok = true end
+    end
+    if not ok then return end
+    if st == "auto" then
+      clearStatusOverride(tabId)
+    else
+      -- Hold against the RAW color, not the possibly-overridden e.color.
+      setStatusOverride(tabId, st, e.rawColor or e.color)
+    end
+    O.statusMenuFor = nil
+    overlayRender()
+    overlayReload()
   end
 end
 
@@ -1199,14 +1368,15 @@ overlayRender = function()
   if not O.webview then return end
   local list = (O.view == "triage") and orderTriage(O.entries) or orderWorkspace(O.entries)
   local js = "window.setData(" .. rowsJson(list) .. "," .. jsStr(O.view) .. ","
-    .. hs.json.encode(overlaySettings(O.settings)) .. "," .. tostring(O.settingsOpen == true) .. ")"
+    .. hs.json.encode(overlaySettings(O.settings)) .. "," .. tostring(O.settingsOpen == true) .. ","
+    .. (O.statusMenuFor and jsStr(O.statusMenuFor) or "null") .. ")"
   O.webview:evaluateJavaScript(js, function() overlayAutoFit() end)
 end
 
 -- Async (hs.task) so the sqlite read never stalls the main thread. At most one
 -- reload is in flight at a time.
 local reloading = false
-local function overlayReload()
+overlayReload = function()
   if not O.webview or reloading then return end
   reloading = true
   local task = hs.task.new("/bin/zsh", function(_, out)
@@ -1221,6 +1391,29 @@ local function overlayReload()
     if not task:start() then reloading = false end
   else
     reloading = false
+  end
+end
+
+-- Background self-heal for stale status overrides. buildEntries clears (and
+-- persists the removal of) overrides whose tab changed color or vanished, so
+-- running it on a schedule clears them even with the popup closed and the
+-- overlay hidden. Nothing is rendered and O.entries is untouched. Returns at once
+-- when no override is stored; at most one prune is in flight.
+local pruning = false
+local function pruneOverridesBg()
+  if pruning or next(readOverrides()) == nil then return end
+  pruning = true
+  local task = hs.task.new("/bin/zsh", function(_, out)
+    pruning = false
+    if not out or out == "" then return end
+    local ok, data = pcall(hs.json.decode, out)
+    if not ok or type(data) ~= "table" then return end
+    buildEntries(data) -- result discarded; the clear is a persisted side effect
+  end, { "-lc", "'" .. LIST_SCRIPT .. "'" })
+  if task then
+    if not task:start() then pruning = false end
+  else
+    pruning = false
   end
 end
 
@@ -1324,6 +1517,7 @@ local function showOverlay()
 end
 
 hideOverlay = function()
+  O.statusMenuFor = nil
   stopOverlayTimers()
   if O.webview then O.webview:hide() end
   stopDragTap()
@@ -1350,6 +1544,23 @@ local function toggleOverlay()
   refresh()
 end
 
+-- Render a hotkey spec ({mods}, key) as menu glyphs, e.g. "\226\140\152\226\135\167D".
+local MOD_GLYPH = { ctrl = "\226\140\131", alt = "\226\140\165", opt = "\226\140\165",
+                    shift = "\226\135\167", cmd = "\226\140\152" }
+local MOD_ORDER = { "ctrl", "alt", "shift", "cmd" }
+local function shortcutLabel(spec)
+  local have = {}
+  for _, m in ipairs(spec[1] or {}) do
+    m = (m == "opt") and "alt" or m
+    have[m] = true
+  end
+  local out = ""
+  for _, m in ipairs(MOD_ORDER) do
+    if have[m] then out = out .. MOD_GLYPH[m] end
+  end
+  return out .. string.upper(spec[2] or "")
+end
+
 --------------------------------------------------------------------------------
 -- Spoon API
 --------------------------------------------------------------------------------
@@ -1371,10 +1582,63 @@ function obj:bindHotkeys(mapping)
   return self
 end
 
+-- Draws the menu-bar mark: a Hokusai-style cresting wave. A filled front wave
+-- sits over an identical hollow (outline-only) back wave offset up and right.
+-- Black on transparent so it works as a template image. Returns nil on any
+-- failure so the caller can fall back to a text title.
+local function menubarIcon()
+  local ok, img = pcall(function()
+    local c = hs.canvas.new({ x = 0, y = 0, w = 21, h = 16 })
+    -- Closed bezier silhouette: rising back, crest, lip curling forward and
+    -- down, inner curl, descent to the trough, flat base.
+    local function waveCoords(dx, dy)
+      -- Path is authored on a 24x20 grid; K scales it to the 16pt menu bar.
+      local K, ox, oy = 0.75, 0.5, 0
+      local function p(x, y) return { x = x * K + dx + ox, y = y * K + dy + oy } end
+      local function s(x, y, c1x, c1y, c2x, c2y)
+        return {
+          x = x * K + dx + ox, y = y * K + dy + oy,
+          c1x = c1x * K + dx + ox, c1y = c1y * K + dy + oy,
+          c2x = c2x * K + dx + ox, c2y = c2y * K + dy + oy,
+        }
+      end
+      return {
+        p(1, 19),
+        s(6, 8, 1, 14, 2, 9),       -- rising back of the wave
+        s(14, 3, 9, 5, 11, 3),      -- up over the crest
+        s(21, 11, 18, 3, 23, 7),    -- lip curling forward and down
+        s(15, 8, 19, 10, 17, 6),    -- inner edge of the curl
+        s(17, 14, 13, 10, 13, 13),  -- hollow of the curl
+        s(23, 19, 19, 15, 20, 19),  -- descent to the trough
+        p(1, 19),                   -- flat base back to the start
+      }
+    end
+    c:appendElements(
+      {
+        type = "segments", action = "stroke", closed = true,
+        strokeColor = { white = 0, alpha = 1 }, strokeWidth = 1.2,
+        strokeJoinStyle = "round", strokeCapStyle = "round",
+        coordinates = waveCoords(3, 0),
+      },
+      {
+        type = "segments", action = "fill", closed = true,
+        fillColor = { white = 0, alpha = 1 },
+        coordinates = waveCoords(0, 0),
+      }
+    )
+    local image = c:imageFromCanvas()
+    c:delete()
+    return image
+  end)
+  return ok and img or nil
+end
+
 --- WaveSwitcher:start()
 --- Method
 --- Starts the switcher: registers the hotkey (default Ctrl+K) and the watcher
 --- that keeps it active only while Wave Terminal is frontmost.
+---
+--- Set `obj.menubar = false` before start() to skip the menu-bar item (default on).
 ---
 --- Returns:
 ---  * The WaveSwitcher object
@@ -1388,8 +1652,30 @@ function obj:start()
   local tspec = self._toggleSpec or { { "cmd", "shift" }, "d" }
   toggleHotkey = hs.hotkey.new(tspec[1], tspec[2], toggleOverlay)
   loadOverlayState()
+  if not self._pruneTimer then self._pruneTimer = hs.timer.doEvery(25, pruneOverridesBg) end
   watcher = hs.application.watcher.new(refresh)
   watcher:start()
+  if self.menubar ~= false then
+    self._menubar = hs.menubar.new()
+    if self._menubar then
+      local icon = menubarIcon()
+      if icon then
+        self._menubar:setIcon(icon, true)
+      else
+        self._menubar:setTitle("WS")
+      end
+      self._menubar:setMenu(function()
+        local ospec = self._hotkeySpec or { { "ctrl" }, "k" }
+        local dspec = self._toggleSpec or { { "cmd", "shift" }, "d" }
+        return {
+          { title = "Dashboard  " .. shortcutLabel(dspec), checked = O.enabled, fn = toggleOverlay },
+          { title = "Open switcher  " .. shortcutLabel(ospec), fn = function() if not webview then open() end end },
+          { title = "-" },
+          { title = "WaveSwitcher " .. obj.version, disabled = true },
+        }
+      end)
+    end
+  end
   refresh()
   return self
 end
@@ -1427,6 +1713,8 @@ function obj:stop()
   if watcher then watcher:stop(); watcher = nil end
   if hotkey then hotkey:disable(); hotkey = nil end
   if toggleHotkey then toggleHotkey:disable(); toggleHotkey = nil end
+  if self._menubar then self._menubar:delete(); self._menubar = nil end
+  if self._pruneTimer then self._pruneTimer:stop(); self._pruneTimer = nil end
   stopDragTap()
   stopResizeTap()
   stopOverlayTimers()

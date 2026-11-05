@@ -13,6 +13,7 @@ Spotlight, Raycast, and `agent-view`.
 - **Navigate** — `↑`/`↓`, `Ctrl+n`/`Ctrl+p`, or `j`/`k` (when the search box is empty). Wraps around top↔bottom.
 - **Pin** — `Tab` pins/unpins the selected session; pinned ones float to a **PINNED** group at the top (persists per tab), so the sessions you're bouncing between stay one keypress away.
 - **Follow-up** — `Ctrl+F` flags the selected session for follow-up, with an optional short note (type it right after flagging, `Enter` to save). Flagged rows get an amber flag marker and their note shown inline, so an idle session you need to circle back to stays easy to spot. Jumping to a flagged session clears its flag; `Ctrl+F` again also clears it.
+- **Set status manually**: `?` on the selected session, then `1` idle, `2` running, `3` subagents, `4` shell, `5` compacting, `6` needs input, or `0` for auto (clears the override); `Esc` cancels. `?` is reserved for this, so it can't be typed into the search box. See [Manual status override](#manual-status-override).
 - **Status overlay**: an always-on floating panel listing every session across every workspace while Wave is in front (`Cmd+Shift+D` toggles it). See [Status overlay](#status-overlay).
 - **Jump** — `Enter`. **Dismiss** — `Esc` or click outside.
 - **Usage** — the footer shows your Claude subscription usage (5-hour **session** % and 7-day **week** %), colored as it climbs, so you can see how close you are to your limits without leaving the picker.
@@ -106,6 +107,25 @@ automatically on first use and then left in place (they are no longer written).
 
 No extra setup is needed: the overlay ships in the Spoon and appears when Wave is
 focused.
+
+## Manual status override
+
+When the hook-driven status is wrong, you can set a session's status by hand:
+
+- **Popup**: select the session, press `?`, then a number key: `1` idle, `2` running,
+  `3` subagents, `4` shell, `5` compacting, `6` needs input, or `0` for auto (clears
+  the override). `Esc` cancels.
+- **Overlay**: click a row's status pill to open a small menu with the same six
+  statuses plus auto.
+
+The override holds only while the app's own status for that tab is unchanged. The
+moment the hook reports a different status (a genuine update), the override clears
+itself and the real status shows again. Overridden rows show a small marker.
+
+The override corrects what WaveSwitcher shows (the popup and the overlay share it).
+It does not change Wave's own tab-bar flag color, which Hammerspoon cannot write.
+It is stored in Hammerspoon's settings store (`hs.settings`), not in files under
+`~/.hammerspoon/`.
 
 ## Configuration
 
