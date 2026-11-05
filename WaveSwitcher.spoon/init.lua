@@ -1394,6 +1394,29 @@ overlayReload = function()
   end
 end
 
+-- Background self-heal for stale status overrides. buildEntries clears (and
+-- persists the removal of) overrides whose tab changed color or vanished, so
+-- running it on a schedule clears them even with the popup closed and the
+-- overlay hidden. Nothing is rendered and O.entries is untouched. Returns at once
+-- when no override is stored; at most one prune is in flight.
+local pruning = false
+local function pruneOverridesBg()
+  if pruning or next(readOverrides()) == nil then return end
+  pruning = true
+  local task = hs.task.new("/bin/zsh", function(_, out)
+    pruning = false
+    if not out or out == "" then return end
+    local ok, data = pcall(hs.json.decode, out)
+    if not ok or type(data) ~= "table" then return end
+    buildEntries(data) -- result discarded; the clear is a persisted side effect
+  end, { "-lc", "'" .. LIST_SCRIPT .. "'" })
+  if task then
+    if not task:start() then pruning = false end
+  else
+    pruning = false
+  end
+end
+
 local gitRunning = false
 local function overlayRefreshGit()
   if not O.webview or gitRunning then return end
@@ -1629,6 +1652,7 @@ function obj:start()
   local tspec = self._toggleSpec or { { "cmd", "shift" }, "d" }
   toggleHotkey = hs.hotkey.new(tspec[1], tspec[2], toggleOverlay)
   loadOverlayState()
+  if not self._pruneTimer then self._pruneTimer = hs.timer.doEvery(25, pruneOverridesBg) end
   watcher = hs.application.watcher.new(refresh)
   watcher:start()
   if self.menubar ~= false then
@@ -1690,6 +1714,7 @@ function obj:stop()
   if hotkey then hotkey:disable(); hotkey = nil end
   if toggleHotkey then toggleHotkey:disable(); toggleHotkey = nil end
   if self._menubar then self._menubar:delete(); self._menubar = nil end
+  if self._pruneTimer then self._pruneTimer:stop(); self._pruneTimer = nil end
   stopDragTap()
   stopResizeTap()
   stopOverlayTimers()
