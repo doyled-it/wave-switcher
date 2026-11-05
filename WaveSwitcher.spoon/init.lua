@@ -1559,30 +1559,47 @@ function obj:bindHotkeys(mapping)
   return self
 end
 
--- Draws the menu-bar mark: two stacked sine-like wave strokes, black on
--- transparent so it works as a template image. Returns nil on any failure so
--- the caller can fall back to a text title.
+-- Draws the menu-bar mark: a Hokusai-style cresting wave. A filled front wave
+-- sits over an identical hollow (outline-only) back wave offset up and right.
+-- Black on transparent so it works as a template image. Returns nil on any
+-- failure so the caller can fall back to a text title.
 local function menubarIcon()
   local ok, img = pcall(function()
-    local w, h = 22, 16
-    local c = hs.canvas.new({ x = 0, y = 0, w = w, h = h })
-    local function wave(y, amp)
-      -- two crests across the width, smooth via bezier control points
-      local x0, x1, x2 = 2, w / 2, w - 2
+    local c = hs.canvas.new({ x = 0, y = 0, w = 28, h = 20 })
+    -- Closed bezier silhouette: rising back, crest, lip curling forward and
+    -- down, inner curl, descent to the trough, flat base.
+    local function waveCoords(dx, dy)
+      local function p(x, y) return { x = x + dx, y = y + dy } end
+      local function s(x, y, c1x, c1y, c2x, c2y)
+        return {
+          x = x + dx, y = y + dy,
+          c1x = c1x + dx, c1y = c1y + dy, c2x = c2x + dx, c2y = c2y + dy,
+        }
+      end
       return {
-        type = "segments",
-        action = "stroke",
-        strokeColor = { white = 0, alpha = 1 },
-        strokeWidth = 1.8,
-        strokeCapStyle = "round",
-        coordinates = {
-          { x = x0, y = y },
-          { x = x1, y = y, c1x = x0 + 2.5, c1y = y - amp, c2x = x1 - 2.5, c2y = y - amp },
-          { x = x2, y = y, c1x = x1 + 2.5, c1y = y + amp, c2x = x2 - 2.5, c2y = y + amp },
-        },
+        p(1, 19),
+        s(6, 8, 1, 14, 2, 9),       -- rising back of the wave
+        s(14, 3, 9, 5, 11, 3),      -- up over the crest
+        s(21, 11, 18, 3, 23, 7),    -- lip curling forward and down
+        s(15, 8, 19, 10, 17, 6),    -- inner edge of the curl
+        s(17, 14, 13, 10, 13, 13),  -- hollow of the curl
+        s(23, 19, 19, 15, 20, 19),  -- descent to the trough
+        p(1, 19),                   -- flat base back to the start
       }
     end
-    c:appendElements(wave(5.5, 4), wave(11, 4))
+    c:appendElements(
+      {
+        type = "segments", action = "stroke", closed = true,
+        strokeColor = { white = 0, alpha = 1 }, strokeWidth = 1.4,
+        strokeJoinStyle = "round", strokeCapStyle = "round",
+        coordinates = waveCoords(4, -3),
+      },
+      {
+        type = "segments", action = "fill", closed = true,
+        fillColor = { white = 0, alpha = 1 },
+        coordinates = waveCoords(0, 0),
+      }
+    )
     local image = c:imageFromCanvas()
     c:delete()
     return image
