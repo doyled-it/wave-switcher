@@ -116,7 +116,9 @@ When the hook-driven status is wrong, you can set a session's status by hand:
   `3` subagents, `4` shell, `5` compacting, `6` needs input, or `0` for auto (clears
   the override). `Esc` cancels.
 - **Overlay**: click a row's status pill to open a small menu with the same six
-  statuses plus auto.
+  statuses plus auto; the current status is highlighted. The pill menu needs the status
+  pill to be visible (the `showPill` setting on); if the pill is hidden, use the popup
+  `?` hotkey instead.
 
 The override holds only while the app's own status for that tab is unchanged. The
 moment the hook reports a different status (a genuine update), the override clears

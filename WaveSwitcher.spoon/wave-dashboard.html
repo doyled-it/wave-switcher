@@ -79,6 +79,7 @@
   .smenu .mi{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--dim);text-decoration:none;
     padding:2px 9px;border-radius:999px;border:1px solid var(--border);background:rgba(128,128,128,.12);}
   .smenu .mi:hover{background:rgba(255,255,255,.14);}
+  .smenu .mi.cur{color:var(--text);border-color:currentColor;background:rgba(255,255,255,.2);font-weight:600;}
   .smenu .dot{width:7px;height:7px;}
   .ctl{flex:none;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
     border-radius:6px;font-size:13px;line-height:1;color:var(--muted);opacity:.45;}
@@ -131,7 +132,7 @@
     "needs input": {cls:"needs",   pill:"st-needs",   label:"needs input"},
     "idle":        {cls:"idle",    pill:"st-idle",    label:"idle"},
   };
-  var MENU_STATUSES = ['idle','running','subagents','shell','compacting','needs input'];
+  var MENU_STATUSES = /*__OVERRIDE_STATUSES__*/[];
   function statusOf(s){ return STATUS[s] || {cls:"none", pill:"st-none", label:s||"\u2014"}; }
   function esc(s){ return String(s).replace(/[&<>"]/g, function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
@@ -228,7 +229,8 @@
         html += '<div class="smenu">';
         for(var j=0;j<MENU_STATUSES.length;j++){
           var ms = statusOf(MENU_STATUSES[j]);
-          html += '<a class="mi" href="wsw://setstatus?tab='+tab+'&status='+encodeURIComponent(MENU_STATUSES[j])+'">'
+          var cur = (e.status === MENU_STATUSES[j]) ? ' cur' : '';
+          html += '<a class="mi'+cur+'" href="wsw://setstatus?tab='+tab+'&status='+encodeURIComponent(MENU_STATUSES[j])+'">'
                 +   '<span class="dot '+ms.cls+'"></span>'+esc(ms.label)+'</a>';
         }
         html += '<a class="mi auto" href="wsw://setstatus?tab='+tab+'&status=auto">auto</a></div>';

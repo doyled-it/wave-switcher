@@ -22,7 +22,7 @@ obj.__index = obj
 
 -- Metadata
 obj.name = "WaveSwitcher"
-obj.version = "1.4.0"
+obj.version = "1.4.1"
 obj.author = "mdoyle"
 obj.homepage = "https://github.com/doyled-it/wave-switcher"
 obj.license = "MIT - https://opensource.org/licenses/MIT"
@@ -273,7 +273,7 @@ local GROUP_H  = 30
 local LIST_PAD = 16
 local MAX_ROWS = 9
 local TOP_FRAC = 0.15
-local MIN_CARD_H = 390 -- fits the status picker: top 84 + ~280 content + margin
+local PICKER_CARD_H = 390 -- card height that fits the status picker: top 84 + ~280 content + margin
 
 --------------------------------------------------------------------------------
 -- Data
@@ -844,6 +844,26 @@ local function applyStatusPick(tabId, n, atColor)
   renderNow()
 end
 
+-- Grow the popup webview (downward) so the floating status picker is not
+-- clipped; remember the base frame so it can be restored. No-op when the popup
+-- is already tall enough or there is no webview.
+local function growForPicker()
+  if not webview or P.baseFrame then return end
+  local f = webview:frame()
+  local need = PICKER_CARD_H + 2 * PAD
+  if f.h >= need then return end
+  P.baseFrame = { x = f.x, y = f.y, w = f.w, h = f.h }
+  webview:frame({ x = f.x, y = f.y, w = f.w, h = need })
+end
+
+-- Restore the base size after the picker closes. Safe if nothing was grown or
+-- the webview is already gone.
+local function restoreAfterPicker()
+  local base = P.baseFrame
+  P.baseFrame = nil
+  if base and webview then webview:frame(base) end
+end
+
 local function handleKey(e)
   local flags = e:getFlags()
   local key = hs.keycodes.map[e:getKeyCode()]
@@ -881,6 +901,7 @@ local function handleKey(e)
   if P.statusMode then
     if key == "escape" then
       P.statusMode = false; P.statusTabId = nil; P.statusColor = nil
+      restoreAfterPicker()
       scheduleRender(); return true
     end
     if not (flags.cmd or flags.ctrl or flags.alt) then
@@ -889,6 +910,7 @@ local function handleKey(e)
       if n and #ch == 1 and n >= 0 and n <= #OVERRIDE_STATUSES then
         local tabId, color = P.statusTabId, P.statusColor
         P.statusMode = false; P.statusTabId = nil; P.statusColor = nil
+        restoreAfterPicker()
         hs.timer.doAfter(0, function() applyStatusPick(tabId, n, color) end)
       end
     end
@@ -902,6 +924,7 @@ local function handleKey(e)
     if sel and sel.tabId then
       P.statusMode = true; P.statusTabId = sel.tabId
       P.statusColor = sel.rawColor or sel.color -- color the override holds against
+      growForPicker()
       scheduleRender()
     end
     return true
@@ -944,6 +967,7 @@ open = function()
   P.activeWs = nil
   P.noteMode = false; P.noteTabId = nil; P.noteText = ""
   P.statusMode = false; P.statusTabId = nil; P.statusColor = nil
+  P.baseFrame = nil
   refilter()
   -- Pre-select the tab you came from (the active window's active tab), and note
   -- its workspace so a jump within it can skip the (slower) workspace switch.
@@ -960,8 +984,8 @@ open = function()
   local contentH = #P.entries * ROW_H + groups * GROUP_H + LIST_PAD
   local maxListH = MAX_ROWS * ROW_H + 2 * GROUP_H + LIST_PAD
   local listH = math.min(contentH, maxListH)
-  -- Floor so the floating status picker (~280px tall, top 84px) is never clipped.
-  local cardH = math.max(HEADER_H + 1 + listH + FOOTER_H, MIN_CARD_H)
+  -- Sized to content; the webview grows only while the status picker is open.
+  local cardH = HEADER_H + 1 + listH + FOOTER_H
   local wvW = CARD_W + 2 * PAD
   local wvH = cardH + 2 * PAD
 
@@ -1034,6 +1058,7 @@ close = function()
   if renderTimer then renderTimer:stop(); renderTimer = nil end
   if keyTap then keyTap:stop(); keyTap = nil end
   if mouseTap then mouseTap:stop(); mouseTap = nil end
+  P.baseFrame = nil
   if webview then webview:delete(); webview = nil end
   local front = hs.application.frontmostApplication()
   if hotkey and front and front:bundleID() == WAVE_BUNDLE then hotkey:enable() end
@@ -1227,6 +1252,7 @@ end
 local function buildOverlayWebview()
   local html = readFileText(scriptDir .. "wave-dashboard.html") or ""
   html = html:gsub("/%*__STATUSVARS__%*/", function() return statusVarsCss() end)
+  html = html:gsub("/%*__OVERRIDE_STATUSES__%*/%[%]", function() return hs.json.encode(OVERRIDE_STATUSES) end)
   html = html:gsub("/%*__THEME__%*/", function() return themeCss() end)
   html = html:gsub('/%*__VIEW__%*/"workspace"', function() return '"' .. O.view .. '"' end)
   -- /*__DATA__*/[] stays [] here; live rows are pushed by the poll timer.
