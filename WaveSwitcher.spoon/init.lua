@@ -1521,6 +1521,23 @@ local function toggleOverlay()
   refresh()
 end
 
+-- Render a hotkey spec ({mods}, key) as menu glyphs, e.g. "\226\140\152\226\135\167D".
+local MOD_GLYPH = { ctrl = "\226\140\131", alt = "\226\140\165", opt = "\226\140\165",
+                    shift = "\226\135\167", cmd = "\226\140\152" }
+local MOD_ORDER = { "ctrl", "alt", "shift", "cmd" }
+local function shortcutLabel(spec)
+  local have = {}
+  for _, m in ipairs(spec[1] or {}) do
+    m = (m == "opt") and "alt" or m
+    have[m] = true
+  end
+  local out = ""
+  for _, m in ipairs(MOD_ORDER) do
+    if have[m] then out = out .. MOD_GLYPH[m] end
+  end
+  return out .. string.upper(spec[2] or "")
+end
+
 --------------------------------------------------------------------------------
 -- Spoon API
 --------------------------------------------------------------------------------
@@ -1547,6 +1564,8 @@ end
 --- Starts the switcher: registers the hotkey (default Ctrl+K) and the watcher
 --- that keeps it active only while Wave Terminal is frontmost.
 ---
+--- Set `obj.menubar = false` before start() to skip the menu-bar item (default on).
+---
 --- Returns:
 ---  * The WaveSwitcher object
 function obj:start()
@@ -1561,6 +1580,22 @@ function obj:start()
   loadOverlayState()
   watcher = hs.application.watcher.new(refresh)
   watcher:start()
+  if self.menubar ~= false then
+    self._menubar = hs.menubar.new()
+    if self._menubar then
+      self._menubar:setTitle("WS")
+      self._menubar:setMenu(function()
+        local ospec = self._hotkeySpec or { { "ctrl" }, "k" }
+        local dspec = self._toggleSpec or { { "cmd", "shift" }, "d" }
+        return {
+          { title = "Dashboard  " .. shortcutLabel(dspec), checked = O.enabled, fn = toggleOverlay },
+          { title = "Open switcher  " .. shortcutLabel(ospec), fn = function() if not webview then open() end end },
+          { title = "-" },
+          { title = "WaveSwitcher " .. obj.version, disabled = true },
+        }
+      end)
+    end
+  end
   refresh()
   return self
 end
@@ -1598,6 +1633,7 @@ function obj:stop()
   if watcher then watcher:stop(); watcher = nil end
   if hotkey then hotkey:disable(); hotkey = nil end
   if toggleHotkey then toggleHotkey:disable(); toggleHotkey = nil end
+  if self._menubar then self._menubar:delete(); self._menubar = nil end
   stopDragTap()
   stopResizeTap()
   stopOverlayTimers()
