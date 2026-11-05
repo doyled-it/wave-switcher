@@ -1565,15 +1565,18 @@ end
 -- failure so the caller can fall back to a text title.
 local function menubarIcon()
   local ok, img = pcall(function()
-    local c = hs.canvas.new({ x = 0, y = 0, w = 28, h = 20 })
+    local c = hs.canvas.new({ x = 0, y = 0, w = 21, h = 16 })
     -- Closed bezier silhouette: rising back, crest, lip curling forward and
     -- down, inner curl, descent to the trough, flat base.
     local function waveCoords(dx, dy)
-      local function p(x, y) return { x = x + dx, y = y + dy } end
+      -- Path is authored on a 24x20 grid; K scales it to the 16pt menu bar.
+      local K, ox, oy = 0.75, 0.5, -2
+      local function p(x, y) return { x = x * K + dx + ox, y = y * K + dy + oy } end
       local function s(x, y, c1x, c1y, c2x, c2y)
         return {
-          x = x + dx, y = y + dy,
-          c1x = c1x + dx, c1y = c1y + dy, c2x = c2x + dx, c2y = c2y + dy,
+          x = x * K + dx + ox, y = y * K + dy + oy,
+          c1x = c1x * K + dx + ox, c1y = c1y * K + dy + oy,
+          c2x = c2x * K + dx + ox, c2y = c2y * K + dy + oy,
         }
       end
       return {
@@ -1590,9 +1593,9 @@ local function menubarIcon()
     c:appendElements(
       {
         type = "segments", action = "stroke", closed = true,
-        strokeColor = { white = 0, alpha = 1 }, strokeWidth = 1.4,
+        strokeColor = { white = 0, alpha = 1 }, strokeWidth = 1.2,
         strokeJoinStyle = "round", strokeCapStyle = "round",
-        coordinates = waveCoords(4, -3),
+        coordinates = waveCoords(3, 3),
       },
       {
         type = "segments", action = "fill", closed = true,
