@@ -1227,6 +1227,7 @@ end
 local function buildOverlayWebview()
   local html = readFileText(scriptDir .. "wave-dashboard.html") or ""
   html = html:gsub("/%*__STATUSVARS__%*/", function() return statusVarsCss() end)
+  html = html:gsub("/%*__OVERRIDE_STATUSES__%*/%[%]", function() return hs.json.encode(OVERRIDE_STATUSES) end)
   html = html:gsub("/%*__THEME__%*/", function() return themeCss() end)
   html = html:gsub('/%*__VIEW__%*/"workspace"', function() return '"' .. O.view .. '"' end)
   -- /*__DATA__*/[] stays [] here; live rows are pushed by the poll timer.
