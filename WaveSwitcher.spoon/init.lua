@@ -273,6 +273,7 @@ local GROUP_H  = 30
 local LIST_PAD = 16
 local MAX_ROWS = 9
 local TOP_FRAC = 0.15
+local MIN_CARD_H = 390 -- fits the status picker: top 84 + ~280 content + margin
 
 --------------------------------------------------------------------------------
 -- Data
@@ -959,7 +960,8 @@ open = function()
   local contentH = #P.entries * ROW_H + groups * GROUP_H + LIST_PAD
   local maxListH = MAX_ROWS * ROW_H + 2 * GROUP_H + LIST_PAD
   local listH = math.min(contentH, maxListH)
-  local cardH = HEADER_H + 1 + listH + FOOTER_H
+  -- Floor so the floating status picker (~280px tall, top 84px) is never clipped.
+  local cardH = math.max(HEADER_H + 1 + listH + FOOTER_H, MIN_CARD_H)
   local wvW = CARD_W + 2 * PAD
   local wvH = cardH + 2 * PAD
 
