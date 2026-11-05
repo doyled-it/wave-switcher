@@ -1559,6 +1559,37 @@ function obj:bindHotkeys(mapping)
   return self
 end
 
+-- Draws the menu-bar mark: two stacked sine-like wave strokes, black on
+-- transparent so it works as a template image. Returns nil on any failure so
+-- the caller can fall back to a text title.
+local function menubarIcon()
+  local ok, img = pcall(function()
+    local w, h = 22, 16
+    local c = hs.canvas.new({ x = 0, y = 0, w = w, h = h })
+    local function wave(y, amp)
+      -- two crests across the width, smooth via bezier control points
+      local x0, x1, x2 = 2, w / 2, w - 2
+      return {
+        type = "segments",
+        action = "stroke",
+        strokeColor = { white = 0, alpha = 1 },
+        strokeWidth = 1.8,
+        strokeCapStyle = "round",
+        coordinates = {
+          { x = x0, y = y },
+          { x = x1, y = y, c1x = x0 + 2.5, c1y = y - amp, c2x = x1 - 2.5, c2y = y - amp },
+          { x = x2, y = y, c1x = x1 + 2.5, c1y = y + amp, c2x = x2 - 2.5, c2y = y + amp },
+        },
+      }
+    end
+    c:appendElements(wave(5.5, 4), wave(11, 4))
+    local image = c:imageFromCanvas()
+    c:delete()
+    return image
+  end)
+  return ok and img or nil
+end
+
 --- WaveSwitcher:start()
 --- Method
 --- Starts the switcher: registers the hotkey (default Ctrl+K) and the watcher
@@ -1583,7 +1614,12 @@ function obj:start()
   if self.menubar ~= false then
     self._menubar = hs.menubar.new()
     if self._menubar then
-      self._menubar:setTitle("WS")
+      local icon = menubarIcon()
+      if icon then
+        self._menubar:setIcon(icon, true)
+      else
+        self._menubar:setTitle("WS")
+      end
       self._menubar:setMenu(function()
         local ospec = self._hotkeySpec or { { "ctrl" }, "k" }
         local dspec = self._toggleSpec or { { "cmd", "shift" }, "d" }
