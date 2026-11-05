@@ -1570,7 +1570,7 @@ local function menubarIcon()
     -- down, inner curl, descent to the trough, flat base.
     local function waveCoords(dx, dy)
       -- Path is authored on a 24x20 grid; K scales it to the 16pt menu bar.
-      local K, ox, oy = 0.75, 0.5, -2
+      local K, ox, oy = 0.75, 0.5, 0
       local function p(x, y) return { x = x * K + dx + ox, y = y * K + dy + oy } end
       local function s(x, y, c1x, c1y, c2x, c2y)
         return {
@@ -1595,7 +1595,7 @@ local function menubarIcon()
         type = "segments", action = "stroke", closed = true,
         strokeColor = { white = 0, alpha = 1 }, strokeWidth = 1.2,
         strokeJoinStyle = "round", strokeCapStyle = "round",
-        coordinates = waveCoords(3, 3),
+        coordinates = waveCoords(3, 0),
       },
       {
         type = "segments", action = "fill", closed = true,
